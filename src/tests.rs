@@ -116,6 +116,30 @@ fn parity_f_shape_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+fn parity_e_shape_bitmap() -> Bitmap {
+    const CANVAS: usize = 256;
+    let rects = [
+        (58.0, 52.0, 104.0, 204.0, 16.0),
+        (58.0, 52.0, 198.0, 96.0, 16.0),
+        (58.0, 106.0, 182.0, 150.0, 16.0),
+        (58.0, 160.0, 198.0, 204.0, 16.0),
+    ];
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                let point = (x as f64 + 0.5, y as f64 + 0.5);
+                rects.iter().any(|(left, top, right, bottom, radius)| {
+                    let nearest_x = point.0.clamp(left + radius, right - radius);
+                    let nearest_y = point.1.clamp(top + radius, bottom - radius);
+                    (point.0 - nearest_x).powi(2) + (point.1 - nearest_y).powi(2) <= radius * radius
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 fn parity_two_circles_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let left_center = (84.0, 128.0);
@@ -1068,6 +1092,29 @@ fn pixel_f_shape_template_matches_potrace_mask() {
     assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
     assert!(svg.contains("M920 1882l0-131"), "{svg}");
     assert!(svg.contains("281 0 281 0"), "{svg}");
+}
+
+#[test]
+fn pixel_e_shape_template_matches_potrace_mask() {
+    let bitmap = parity_e_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1040 1599l419 3"), "{svg}");
+    assert!(svg.contains("339 3c325 3"), "{svg}");
 }
 
 #[test]

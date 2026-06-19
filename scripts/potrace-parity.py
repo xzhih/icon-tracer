@@ -128,6 +128,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 57,
         "icon_d_bytes": 364,
     },
+    "e_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 26,
+        "icon_svg_point_count": 57,
+        "icon_d_bytes": 368,
+    },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
@@ -203,6 +209,7 @@ def fixtures() -> list[Fixture]:
         Fixture("u_shape", shape_u()),
         Fixture("c_shape", shape_c()),
         Fixture("f_shape", shape_f()),
+        Fixture("e_shape", shape_e()),
     ]
 
 
@@ -361,6 +368,30 @@ def shape_f() -> list[bool]:
             for top, bottom, left, right in runs
         )
     )
+
+
+def rounded_rect_union(rects) -> list[bool]:
+    def inside(x: int, y: int) -> bool:
+        px = x + 0.5
+        py = y + 0.5
+        for left, top, right, bottom, radius in rects:
+            nearest_x = min(max(px, left + radius), right - radius)
+            nearest_y = min(max(py, top + radius), bottom - radius)
+            if (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius:
+                return True
+        return False
+
+    return fill(inside)
+
+
+def shape_e() -> list[bool]:
+    rects = [
+        (58.0, 52.0, 104.0, 204.0, 16.0),
+        (58.0, 52.0, 198.0, 96.0, 16.0),
+        (58.0, 106.0, 182.0, 150.0, 16.0),
+        (58.0, 160.0, 198.0, 204.0, 16.0),
+    ]
+    return rounded_rect_union(rects)
 
 
 def shape_diagonal_bar() -> list[bool]:

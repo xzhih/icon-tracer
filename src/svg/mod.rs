@@ -512,6 +512,27 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(stepped_e) = fit_closed_stepped_e_potrace_segments(&path.points) {
+                if let Some(first) = stepped_e.first() {
+                    let candidate = (first.start(), stepped_e);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) || pixel_potrace_template_candidate_is_acceptable(
+                        path,
+                        canvas_size,
+                        &candidate,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(stepped_f) = fit_closed_stepped_f_potrace_segments(&path.points) {
                 if let Some(first) = stepped_f.first() {
                     let candidate = (first.start(), stepped_f);
@@ -709,6 +730,27 @@ pub(crate) fn pixel_potrace_template_candidate_is_better(
 
     candidate_error <= best_error.saturating_add(slack)
         && candidate_boundary_error < best_boundary_error
+}
+
+pub(crate) fn pixel_potrace_template_candidate_is_acceptable(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_ERROR_PIXELS: usize = 128;
+    const MAX_MASK_ERROR_RATIO: f64 = 0.005;
+    const MAX_BOUNDARY_RMS_ERROR: f64 = 0.75;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let max_error = MIN_MASK_ERROR_PIXELS
+        .max((width.saturating_mul(height) as f64 * MAX_MASK_ERROR_RATIO).round() as usize);
+
+    candidate_error <= max_error && candidate_boundary_error <= MAX_BOUNDARY_RMS_ERROR
 }
 
 pub(crate) fn pixel_potrace_candidate_mask_error(
