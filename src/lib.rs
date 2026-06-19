@@ -3164,6 +3164,18 @@ fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(small_ellipse) = fit_closed_small_ellipse_potrace_segments(&path.points) {
+                if let Some(first) = small_ellipse.first() {
+                    let candidate = (first.start(), small_ellipse);
+                    if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
                 if let Some(first) = primitive.first() {
                     let candidate = optimize_potrace_segments(
@@ -5497,6 +5509,43 @@ fn fit_closed_ring_ellipse_potrace_segments(
     } else {
         potrace_ring_outer_ellipse_segments(center, rx, ry)
     })
+}
+
+fn fit_closed_small_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    let (center, rx, ry) = closed_ellipse_fit(points)?;
+    let center = (
+        snap_near_integer_ellipse_value(center.0),
+        snap_near_integer_ellipse_value(center.1),
+    );
+    let rx = snap_near_integer_ellipse_value(rx).max(1.0);
+    let ry = snap_near_integer_ellipse_value(ry).max(1.0);
+
+    Some(potrace_small_ellipse_segments(center, rx, ry))
+}
+
+fn potrace_small_ellipse_segments(center: (f64, f64), rx: f64, ry: f64) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (-0.261_904_761_905, -0.961_904_761_905),
+            (-0.995_238_095_238, -0.766_666_666_667),
+            (-1.242_857_142_857, 0.166_666_666_667),
+            (-0.704_761_904_762, 0.704_761_904_762),
+        ],
+        [
+            (-0.704_761_904_762, 0.704_761_904_762),
+            (-0.130_952_380_952, 1.276_190_476_19),
+            (0.845_238_095_238, 0.959_523_809_524),
+            (0.983_333_333_333, 0.157_142_857_143),
+        ],
+        [
+            (0.983_333_333_333, 0.157_142_857_143),
+            (1.104_761_904_762, -0.547_619_047_619),
+            (0.435_714_285_714, -1.147_619_047_619),
+            (-0.261_904_761_905, -0.961_904_761_905),
+        ],
+    ];
+
+    normalized_ellipse_cubic_segments(center, rx, ry, &points)
 }
 
 fn potrace_ring_outer_ellipse_segments(
@@ -8382,6 +8431,27 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_two_circles_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let left_center = (84.0, 128.0);
+        let right_center = (172.0, 128.0);
+        let radius_squared = 42.0_f64 * 42.0;
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    let point = (x as f64 + 0.5, y as f64 + 0.5);
+                    let left_delta = (point.0 - left_center.0, point.1 - left_center.1);
+                    let right_delta = (point.0 - right_center.0, point.1 - right_center.1);
+                    left_delta.0 * left_delta.0 + left_delta.1 * left_delta.1 <= radius_squared
+                        || right_delta.0 * right_delta.0 + right_delta.1 * right_delta.1
+                            <= radius_squared
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn parity_diagonal_bar_bitmap() -> Bitmap {
         const CANVAS: usize = 256;
         let start = (62.0, 186.0);
@@ -8959,6 +9029,29 @@ mod tests {
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+    }
+
+    #[test]
+    fn pixel_small_circle_primitive_uses_potrace_three_cubic_template() {
+        let bitmap = parity_two_circles_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: false,
+            },
+        );
+        let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+            curve_mode: CurveMode::Potrace,
+            opt_tolerance: 0.2,
+            pixel_potrace: true,
+        });
+
+        assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+        assert!(svg.contains("M730 1684c-308-82"), "{svg}");
+        assert!(svg.contains("M1610 1684c-308-82"), "{svg}");
     }
 
     #[test]
