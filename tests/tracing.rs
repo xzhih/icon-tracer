@@ -306,6 +306,47 @@ fn potrace_curve_mode_merges_non_quantized_smooth_closed_paths() {
 }
 
 #[test]
+fn potrace_curve_mode_uses_primitive_fit_for_scalar_ring() {
+    let samples = (0..48)
+        .flat_map(|y| {
+            (0..48).map(move |x| {
+                let dx = x as f64 + 0.5 - 24.0;
+                let dy = y as f64 + 0.5 - 24.0;
+                let radius_squared = dx * dx + dy * dy;
+
+                if (8.0 * 8.0..=16.0 * 16.0).contains(&radius_squared) {
+                    0
+                } else {
+                    255
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let field = ScalarField::from_rows(48, 48, &samples).expect("field should be valid");
+    let traced = trace_scalar_field(
+        &field,
+        RasterOptions {
+            threshold: ThresholdMode::Fixed(128),
+            ..RasterOptions::default()
+        },
+        TraceOptions {
+            contour_mode: ContourMode::Scalar,
+            ..TraceOptions::default()
+        },
+    )
+    .expect("scalar trace should succeed");
+
+    let svg = traced.to_svg_with_options(SvgOptions {
+        curve_mode: CurveMode::Potrace,
+    });
+
+    assert!(
+        count_cubic_segments(&svg) <= 12,
+        "scalar ring should stay primitive-like: {svg}"
+    );
+}
+
+#[test]
 fn fit_curve_reduces_cubic_segments_for_subpixel_stair_steps() {
     let bitmap = Bitmap::from_rows(
         5,

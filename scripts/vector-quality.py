@@ -43,7 +43,7 @@ class Mode:
 
 MODES = [
     Mode("subpixel", ("--contour", "subpixel", "--curve", "potrace", "--opt-tolerance", "0.75")),
-    Mode("scalar", ("--contour", "scalar", "--curve", "potrace", "--opt-tolerance", "0.75")),
+    Mode("scalar", ("--contour", "scalar", "--curve", "potrace", "--opt-tolerance", "0.5")),
 ]
 
 
