@@ -4772,7 +4772,7 @@ fn capsule_boundary_is_close(
 
 // Pixel-traced capsules match Potrace more closely with slightly flatter arcs
 // than the mathematical circle kappa.
-const PIXEL_CAPSULE_ARC_KAPPA: f64 = 0.54;
+const PIXEL_CAPSULE_ARC_KAPPA: f64 = 13.0 / 24.0;
 
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
     let center_y = (bounds.min_y + bounds.max_y) / 2.0;
@@ -7576,6 +7576,26 @@ mod tests {
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+    }
+
+    #[test]
+    fn pixel_capsule_primitive_uses_compact_integer_handles() {
+        let bounds = FloatBounds {
+            min_x: 40.0,
+            max_x: 216.0,
+            min_y: 80.0,
+            max_y: 176.0,
+        };
+        let segments = cleanup_potrace_segments(
+            horizontal_capsule_segments(bounds, 48.0),
+            PIXEL_POTRACE_LINEAR_DEVIATION,
+        );
+        let path_data = compact_svg_path_data_from_segments(segments[0].start(), &segments);
+
+        assert_eq!(
+            path_data,
+            "M88 176c-26 0-48-22-48-48s22-48 48-48h80c26 0 48 22 48 48s-22 48-48 48Z"
+        );
     }
 
     #[test]
