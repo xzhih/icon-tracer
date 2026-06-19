@@ -4527,7 +4527,7 @@ fn compact_absolute_svg_path_data_from_segments(
                 }
 
                 data.push_str(&format!(
-                    " {} {}, {} {}, {} {}",
+                    " {} {} {} {} {} {}",
                     format_compact_float(cubic.control1.0),
                     format_compact_float(cubic.control1.1),
                     format_compact_float(cubic.control2.0),
@@ -4577,7 +4577,7 @@ fn compact_relative_svg_path_data_from_segments(
                 }
 
                 data.push_str(&format!(
-                    " {} {}, {} {}, {} {}",
+                    " {} {} {} {} {} {}",
                     format_compact_float(cubic.control1.0 - current.0),
                     format_compact_float(cubic.control1.1 - current.1),
                     format_compact_float(cubic.control2.0 - current.0),
@@ -4633,7 +4633,7 @@ fn compact_smooth_relative_svg_path_data_from_segments(
                     }
 
                     data.push_str(&format!(
-                        " {} {}, {} {}",
+                        " {} {} {} {}",
                         format_compact_float(cubic.control2.0 - current.0),
                         format_compact_float(cubic.control2.1 - current.1),
                         format_compact_float(cubic.end.0 - current.0),
@@ -4646,7 +4646,7 @@ fn compact_smooth_relative_svg_path_data_from_segments(
                     }
 
                     data.push_str(&format!(
-                        " {} {}, {} {}, {} {}",
+                        " {} {} {} {} {} {}",
                         format_compact_float(cubic.control1.0 - current.0),
                         format_compact_float(cubic.control1.1 - current.1),
                         format_compact_float(cubic.control2.0 - current.0),
@@ -6145,7 +6145,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((10.0, 10.0), &segments);
 
-        assert_eq!(data, "M 10 10 l 5 -1 c 2 0, 4 3, 6 6 Z");
+        assert_eq!(data, "M 10 10 l 5 -1 c 2 0 4 3 6 6 Z");
     }
 
     #[test]
@@ -6165,7 +6165,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
 
-        assert_eq!(data, "M 1000 1000 L 0 0 C 0 0, 0 0, 0 0 Z");
+        assert_eq!(data, "M 1000 1000 L 0 0 C 0 0 0 0 0 0 Z");
     }
 
     #[test]
@@ -6199,7 +6199,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
 
-        assert_eq!(data, "M 0 0 c 0 10, 10 10, 10 0 s 10 -10, 10 0 Z");
+        assert_eq!(data, "M 0 0 c 0 10 10 10 10 0 s 10 -10 10 0 Z");
     }
 
     #[test]
