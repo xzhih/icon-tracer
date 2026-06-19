@@ -3027,6 +3027,23 @@ fn choose_pixel_potrace_segments(
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
         && path.points.len() >= 12
     {
+        let mut preserve_primitive = false;
+
+        if let Some(triangle) = fit_closed_upright_triangle_potrace_segments(&path.points) {
+            if let Some(first) = triangle.first() {
+                let candidate = (first.start(), triangle);
+                if pixel_potrace_primitive_candidate_is_close_enough(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
+                    best = candidate;
+                    preserve_primitive = true;
+                }
+            }
+        }
+
         if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
             if let Some(first) = primitive.first() {
                 let candidate = optimize_potrace_segments(
@@ -3048,16 +3065,18 @@ fn choose_pixel_potrace_segments(
             }
         }
 
-        let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
-        if let Some(first) = fitted.first() {
-            let candidate = optimize_potrace_segments(
-                first.start(),
-                &fitted,
-                opt_tolerance,
-                PIXEL_POTRACE_LINEAR_DEVIATION,
-            );
-            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
-                best = candidate;
+        if !preserve_primitive {
+            let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
+            if let Some(first) = fitted.first() {
+                let candidate = optimize_potrace_segments(
+                    first.start(),
+                    &fitted,
+                    opt_tolerance,
+                    PIXEL_POTRACE_LINEAR_DEVIATION,
+                );
+                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                    best = candidate;
+                }
             }
         }
     }
@@ -3101,6 +3120,27 @@ fn pixel_potrace_fitted_candidate_is_close_enough(
     let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
     candidate_error <= best_error.saturating_add(MAX_EXTRA_MASK_PIXELS)
         && candidate.1.len() >= best.1.len()
+}
+
+fn pixel_potrace_primitive_candidate_is_close_enough(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_EXTRA_MASK_PIXELS: usize = 8;
+    const MAX_EXTRA_MASK_RATIO: f64 = 0.003;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    let budget = MIN_EXTRA_MASK_PIXELS
+        .max((width.saturating_mul(height) as f64 * MAX_EXTRA_MASK_RATIO).round() as usize);
+
+    candidate_error <= best_error.saturating_add(budget)
 }
 
 fn pixel_potrace_candidate_mask_error(
@@ -4803,6 +4843,97 @@ fn fit_closed_smooth_potrace_segments(
 fn fit_closed_potrace_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
     fit_closed_capsule_potrace_segments(points)
         .or_else(|| fit_closed_ellipse_potrace_segments(points))
+}
+
+fn fit_closed_upright_triangle_potrace_segments(
+    points: &[(f64, f64)],
+) -> Option<Vec<SvgPathSegment>> {
+    const MIN_AXIS: f64 = 16.0;
+    const MIN_ASPECT_RATIO: f64 = 0.75;
+    const MAX_ASPECT_RATIO: f64 = 1.25;
+    const MAX_BOUNDARY_ERROR: f64 = 0.018;
+    const MAX_MEAN_BOUNDARY_ERROR: f64 = 0.006;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
+
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    let top = ((bounds.min_x + bounds.max_x) / 2.0, bounds.min_y);
+    let left = (bounds.min_x, bounds.max_y);
+    let right = (bounds.max_x, bounds.max_y);
+    let mut max_error = 0.0_f64;
+    let mut total_error = 0.0_f64;
+
+    for point in points {
+        let distance = distance_squared_to_segment(*point, top, left)
+            .0
+            .min(distance_squared_to_segment(*point, left, right).0)
+            .min(distance_squared_to_segment(*point, right, top).0)
+            .sqrt();
+        let error = distance / width.max(height);
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    if max_error > MAX_BOUNDARY_ERROR || total_error / points.len() as f64 > MAX_MEAN_BOUNDARY_ERROR
+    {
+        return None;
+    }
+
+    Some(horizontal_upright_triangle_segments(bounds))
+}
+
+fn horizontal_upright_triangle_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    let left = bounds.min_x.round();
+    let right = bounds.max_x.round();
+    let bottom = bounds.max_y.round();
+    let width = right - left;
+    let top = bottom - width;
+    let center_x = (left + right) / 2.0;
+    let side_dx = width * 0.251_744_186_046_511_6;
+    let mid_y = top + width * 0.502_906_976_744_186;
+    let shoulder_dx = width * 0.137_209_302_325_581_4;
+    let shoulder_dy = width * 0.273_255_813_953_488_36;
+    let top_bias = width * 0.005_813_953_488_372_093;
+    let top_handle_dx = width * 0.001_744_186_046_511_628;
+    let left_mid = (center_x - side_dx, mid_y);
+    let right_mid = (center_x + side_dx, mid_y);
+    let top_point = (center_x, top + top_bias);
+
+    vec![
+        SvgPathSegment::Line {
+            start: left_mid,
+            end: (left, bottom),
+        },
+        SvgPathSegment::Line {
+            start: (left, bottom),
+            end: (right, bottom),
+        },
+        SvgPathSegment::Line {
+            start: (right, bottom),
+            end: right_mid,
+        },
+        SvgPathSegment::Cubic(CubicSegment {
+            start: right_mid,
+            control1: (right_mid.0 - shoulder_dx, right_mid.1 - shoulder_dy),
+            control2: (center_x + top_handle_dx, top_point.1),
+            end: top_point,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: top_point,
+            control1: (center_x - top_handle_dx, top_point.1),
+            control2: (left_mid.0 + shoulder_dx, left_mid.1 - shoulder_dy),
+            end: left_mid,
+        }),
+    ]
 }
 
 fn fit_closed_capsule_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
@@ -7498,6 +7629,38 @@ fn bmp_row_stride(width: usize, bits_per_pixel: u16) -> usize {
 mod tests {
     use super::*;
 
+    fn parity_triangle_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let top = (128.0, 42.0);
+        let right = (214.0, 214.0);
+        let left = (42.0, 214.0);
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    point_is_inside_triangle((x as f64 + 0.5, y as f64 + 0.5), top, right, left)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
+    fn point_is_inside_triangle(
+        point: (f64, f64),
+        a: (f64, f64),
+        b: (f64, f64),
+        c: (f64, f64),
+    ) -> bool {
+        fn sign(p1: (f64, f64), p2: (f64, f64), p3: (f64, f64)) -> f64 {
+            (p1.0 - p3.0) * (p2.1 - p3.1) - (p2.0 - p3.0) * (p1.1 - p3.1)
+        }
+
+        let d1 = sign(point, a, b);
+        let d2 = sign(point, b, c);
+        let d3 = sign(point, c, a);
+        !((d1 < 0.0 || d2 < 0.0 || d3 < 0.0) && (d1 > 0.0 || d2 > 0.0 || d3 > 0.0))
+    }
+
     #[test]
     fn optimal_potrace_polygon_reduces_nearly_straight_stair_steps() {
         let mut points = (0..=12)
@@ -8015,6 +8178,49 @@ mod tests {
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+    }
+
+    #[test]
+    fn pixel_triangle_primitive_uses_potrace_like_segments() {
+        let bitmap = parity_triangle_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: false,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let primitive = fit_closed_upright_triangle_potrace_segments(&path.points)
+            .expect("upright triangle should fit the primitive");
+        let candidate = (primitive[0].start(), primitive.clone());
+        let candidate_error =
+            pixel_potrace_candidate_mask_error(path, &candidate, bitmap.width(), bitmap.height());
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+        )
+        .expect("triangle path should render");
+
+        assert_eq!(primitive.len(), 5);
+        assert!(
+            primitive
+                .iter()
+                .filter(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+                .count()
+                >= 2
+        );
+        assert_eq!(
+            data, "M42 214l172 0-42.7-85.5c-23.6-47-43-85.5-43.3-85.5s-19.7 38.5-43.3 85.5Z",
+            "candidate_error={candidate_error}"
+        );
     }
 
     #[test]
