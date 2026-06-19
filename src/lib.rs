@@ -3226,15 +3226,32 @@ fn pixel_potrace_candidate_is_better(
     if let Some((width, height)) = canvas_size {
         let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
         let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+        let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+        let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
 
-        return candidate_error < best_error
+        return (candidate_error < best_error
+            && pixel_potrace_boundary_error_is_acceptable(
+                candidate_boundary_error,
+                best_boundary_error,
+            ))
             || (candidate_error == best_error
+                && pixel_potrace_boundary_error_is_acceptable(
+                    candidate_boundary_error,
+                    best_boundary_error,
+                )
                 && compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
                     < compact_svg_path_data_from_segments(best.0, &best.1).len());
     }
 
     compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
         < compact_svg_path_data_from_segments(best.0, &best.1).len()
+}
+
+fn pixel_potrace_boundary_error_is_acceptable(candidate: f64, best: f64) -> bool {
+    const MAX_ABSOLUTE_EXTRA_ERROR: f64 = 0.35;
+    const MAX_RELATIVE_EXTRA_ERROR: f64 = 1.15;
+
+    candidate <= (best + MAX_ABSOLUTE_EXTRA_ERROR).max(best * MAX_RELATIVE_EXTRA_ERROR)
 }
 
 fn pixel_potrace_fitted_candidate_is_close_enough(
@@ -3297,6 +3314,44 @@ fn pixel_potrace_candidate_mask_error(
         .zip(candidate_pixels.iter())
         .filter(|(left, right)| left != right)
         .count()
+}
+
+fn pixel_potrace_candidate_boundary_rms_error(
+    path: &TracePath,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+) -> f64 {
+    let reference = closed_polyline_points(&path.points);
+    let candidate_points =
+        closed_polyline_points(&flattened_potrace_segments(candidate.0, &candidate.1));
+    if reference.len() < 2 || candidate_points.len() < 2 {
+        return f64::INFINITY;
+    }
+
+    let reference_to_candidate = mean_squared_distance_to_polyline(&reference, &candidate_points);
+    let candidate_to_reference = mean_squared_distance_to_polyline(&candidate_points, &reference);
+    (reference_to_candidate.max(candidate_to_reference)).sqrt()
+}
+
+fn mean_squared_distance_to_polyline(points: &[(f64, f64)], polyline: &[(f64, f64)]) -> f64 {
+    if points.is_empty() || polyline.len() < 2 {
+        return f64::INFINITY;
+    }
+
+    points
+        .iter()
+        .map(|point| distance_squared_to_polyline(*point, polyline).0)
+        .sum::<f64>()
+        / points.len() as f64
+}
+
+fn closed_polyline_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut closed = points.to_vec();
+    if let (Some(first), Some(last)) = (closed.first().copied(), closed.last().copied()) {
+        if distance_squared_float(first, last) > 1.0e-12 {
+            closed.push(first);
+        }
+    }
+    closed
 }
 
 fn flattened_potrace_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> Vec<(f64, f64)> {
@@ -4104,7 +4159,110 @@ fn cleanup_potrace_segments(
     let optimized = prune_tiny_potrace_curve_segments(segments);
     let optimized = regularize_potrace_orthogonal_corners(optimized);
     let optimized = demote_nearly_linear_potrace_cubics(optimized, max_linear_deviation);
+    let optimized = snap_near_axis_potrace_lines(optimized);
     merge_collinear_potrace_lines(optimized)
+}
+
+fn snap_near_axis_potrace_lines(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    const MAX_AXIS_DRIFT: f64 = 0.75;
+
+    if segments.len() < 2 {
+        return segments;
+    }
+
+    let mut nodes = Vec::with_capacity(segments.len() + 1);
+    nodes.push(segments[0].start());
+    nodes.extend(segments.iter().map(|segment| segment.end()));
+
+    let mut x_constraints: Vec<(f64, usize)> = vec![(0.0, 0); nodes.len()];
+    let mut y_constraints: Vec<(f64, usize)> = vec![(0.0, 0); nodes.len()];
+
+    for (index, segment) in segments.iter().enumerate() {
+        let SvgPathSegment::Line { start, end } = *segment else {
+            continue;
+        };
+
+        let dx = (end.0 - start.0).abs();
+        let dy = (end.1 - start.1).abs();
+        if dx <= MAX_AXIS_DRIFT && dy > MAX_AXIS_DRIFT {
+            let snapped_x = (start.0 + end.0) / 2.0;
+            add_axis_constraint(&mut x_constraints[index], snapped_x);
+            add_axis_constraint(&mut x_constraints[index + 1], snapped_x);
+        } else if dy <= MAX_AXIS_DRIFT && dx > MAX_AXIS_DRIFT {
+            let snapped_y = (start.1 + end.1) / 2.0;
+            add_axis_constraint(&mut y_constraints[index], snapped_y);
+            add_axis_constraint(&mut y_constraints[index + 1], snapped_y);
+        }
+    }
+
+    if compact_segments_are_closed(nodes[0], &segments) {
+        merge_closed_axis_constraints(&mut x_constraints);
+        merge_closed_axis_constraints(&mut y_constraints);
+    }
+
+    let mut changed = false;
+    for index in 0..nodes.len() {
+        if x_constraints[index].1 > 0 {
+            let snapped = x_constraints[index].0 / x_constraints[index].1 as f64;
+            changed |= (nodes[index].0 - snapped).abs() > 1.0e-9;
+            nodes[index].0 = snapped;
+        }
+        if y_constraints[index].1 > 0 {
+            let snapped = y_constraints[index].0 / y_constraints[index].1 as f64;
+            changed |= (nodes[index].1 - snapped).abs() > 1.0e-9;
+            nodes[index].1 = snapped;
+        }
+    }
+
+    if !changed {
+        return segments;
+    }
+
+    segments
+        .into_iter()
+        .enumerate()
+        .map(|(index, segment)| snap_segment_endpoints(segment, nodes[index], nodes[index + 1]))
+        .collect()
+}
+
+fn add_axis_constraint(constraint: &mut (f64, usize), value: f64) {
+    constraint.0 += value;
+    constraint.1 += 1;
+}
+
+fn merge_closed_axis_constraints(constraints: &mut [(f64, usize)]) {
+    if constraints.len() < 2 {
+        return;
+    }
+
+    let last = constraints.len() - 1;
+    let sum = constraints[0].0 + constraints[last].0;
+    let count = constraints[0].1 + constraints[last].1;
+    constraints[0] = (sum, count);
+    constraints[last] = (sum, count);
+}
+
+fn snap_segment_endpoints(
+    segment: SvgPathSegment,
+    snapped_start: (f64, f64),
+    snapped_end: (f64, f64),
+) -> SvgPathSegment {
+    match segment {
+        SvgPathSegment::Line { .. } => SvgPathSegment::Line {
+            start: snapped_start,
+            end: snapped_end,
+        },
+        SvgPathSegment::Cubic(cubic) => {
+            let start_delta = subtract(snapped_start, cubic.start);
+            let end_delta = subtract(snapped_end, cubic.end);
+            SvgPathSegment::Cubic(CubicSegment {
+                start: snapped_start,
+                control1: add(cubic.control1, start_delta),
+                control2: add(cubic.control2, end_delta),
+                end: snapped_end,
+            })
+        }
+    }
 }
 
 fn merge_collinear_potrace_lines(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -4975,11 +5133,13 @@ fn fit_closed_smooth_potrace_segments(
 
 fn fit_closed_potrace_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
     fit_closed_capsule_potrace_segments(points)
+        .or_else(|| fit_closed_rounded_rect_potrace_segments(points))
         .or_else(|| fit_closed_ellipse_potrace_segments(points))
 }
 
 fn fit_closed_smooth_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
     fit_closed_capsule_potrace_segments(points)
+        .or_else(|| fit_closed_rounded_rect_potrace_segments(points))
         .or_else(|| fit_closed_smooth_ellipse_segments(points))
 }
 
@@ -5265,6 +5425,216 @@ fn capsule_boundary_is_close(
     }
 
     max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
+}
+
+fn fit_closed_rounded_rect_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const MIN_RADIUS: f64 = 6.0;
+    const MAX_RADIUS_RATIO: f64 = 0.45;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+
+    let radius = estimate_rounded_rect_radius(points, bounds)?;
+    if radius < MIN_RADIUS || radius >= width.min(height) * MAX_RADIUS_RATIO {
+        return None;
+    }
+
+    rounded_rect_boundary_is_close(points, bounds, radius)
+        .then(|| rounded_rect_potrace_segments(bounds, radius))
+}
+
+fn estimate_rounded_rect_radius(points: &[(f64, f64)], bounds: FloatBounds) -> Option<f64> {
+    const EDGE_EPSILON: f64 = 0.75;
+    const MIN_STRAIGHT_EDGE: f64 = 8.0;
+
+    let mut candidates = Vec::new();
+    collect_horizontal_rounded_rect_radii(
+        points,
+        bounds.min_y,
+        bounds.min_x,
+        bounds.max_x,
+        EDGE_EPSILON,
+        MIN_STRAIGHT_EDGE,
+        &mut candidates,
+    );
+    collect_horizontal_rounded_rect_radii(
+        points,
+        bounds.max_y,
+        bounds.min_x,
+        bounds.max_x,
+        EDGE_EPSILON,
+        MIN_STRAIGHT_EDGE,
+        &mut candidates,
+    );
+    collect_vertical_rounded_rect_radii(
+        points,
+        bounds.min_x,
+        bounds.min_y,
+        bounds.max_y,
+        EDGE_EPSILON,
+        MIN_STRAIGHT_EDGE,
+        &mut candidates,
+    );
+    collect_vertical_rounded_rect_radii(
+        points,
+        bounds.max_x,
+        bounds.min_y,
+        bounds.max_y,
+        EDGE_EPSILON,
+        MIN_STRAIGHT_EDGE,
+        &mut candidates,
+    );
+
+    candidates.retain(|value| value.is_finite() && *value > 0.0);
+    if candidates.len() < 4 {
+        return None;
+    }
+
+    candidates.sort_by(f64::total_cmp);
+    Some(candidates[candidates.len() / 2])
+}
+
+fn collect_horizontal_rounded_rect_radii(
+    points: &[(f64, f64)],
+    y: f64,
+    left: f64,
+    right: f64,
+    epsilon: f64,
+    min_span: f64,
+    radii: &mut Vec<f64>,
+) {
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+
+    for point in points {
+        if (point.1 - y).abs() <= epsilon {
+            min_x = min_x.min(point.0);
+            max_x = max_x.max(point.0);
+        }
+    }
+
+    if max_x - min_x >= min_span {
+        radii.push(min_x - left);
+        radii.push(right - max_x);
+    }
+}
+
+fn collect_vertical_rounded_rect_radii(
+    points: &[(f64, f64)],
+    x: f64,
+    top: f64,
+    bottom: f64,
+    epsilon: f64,
+    min_span: f64,
+    radii: &mut Vec<f64>,
+) {
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+
+    for point in points {
+        if (point.0 - x).abs() <= epsilon {
+            min_y = min_y.min(point.1);
+            max_y = max_y.max(point.1);
+        }
+    }
+
+    if max_y - min_y >= min_span {
+        radii.push(min_y - top);
+        radii.push(bottom - max_y);
+    }
+}
+
+fn rounded_rect_boundary_is_close(points: &[(f64, f64)], bounds: FloatBounds, radius: f64) -> bool {
+    const MAX_RADIAL_ERROR: f64 = 0.16;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.045;
+
+    let inner = FloatBounds {
+        min_x: bounds.min_x + radius,
+        max_x: bounds.max_x - radius,
+        min_y: bounds.min_y + radius,
+        max_y: bounds.max_y - radius,
+    };
+    if inner.min_x > inner.max_x || inner.min_y > inner.max_y {
+        return false;
+    }
+
+    let mut max_error = 0.0_f64;
+    let mut total_error = 0.0_f64;
+    for point in points {
+        let nearest = inner.clamp(*point);
+        let distance = (point.0 - nearest.0).hypot(point.1 - nearest.1);
+        let error = ((distance - radius) / radius).abs();
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
+}
+
+fn rounded_rect_potrace_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
+    const KAPPA: f64 = 0.552_284_749_830_793_6;
+
+    let left = bounds.min_x;
+    let right = bounds.max_x;
+    let top = bounds.min_y;
+    let bottom = bounds.max_y;
+    let handle = radius * KAPPA;
+
+    let top_left = (left + radius, top);
+    let top_right = (right - radius, top);
+    let right_top = (right, top + radius);
+    let right_bottom = (right, bottom - radius);
+    let bottom_right = (right - radius, bottom);
+    let bottom_left = (left + radius, bottom);
+    let left_bottom = (left, bottom - radius);
+    let left_top = (left, top + radius);
+
+    vec![
+        SvgPathSegment::Line {
+            start: top_left,
+            end: top_right,
+        },
+        SvgPathSegment::Cubic(CubicSegment {
+            start: top_right,
+            control1: (top_right.0 + handle, top_right.1),
+            control2: (right_top.0, right_top.1 - handle),
+            end: right_top,
+        }),
+        SvgPathSegment::Line {
+            start: right_top,
+            end: right_bottom,
+        },
+        SvgPathSegment::Cubic(CubicSegment {
+            start: right_bottom,
+            control1: (right_bottom.0, right_bottom.1 + handle),
+            control2: (bottom_right.0 + handle, bottom_right.1),
+            end: bottom_right,
+        }),
+        SvgPathSegment::Line {
+            start: bottom_right,
+            end: bottom_left,
+        },
+        SvgPathSegment::Cubic(CubicSegment {
+            start: bottom_left,
+            control1: (bottom_left.0 - handle, bottom_left.1),
+            control2: (left_bottom.0, left_bottom.1 + handle),
+            end: left_bottom,
+        }),
+        SvgPathSegment::Line {
+            start: left_bottom,
+            end: left_top,
+        },
+        SvgPathSegment::Cubic(CubicSegment {
+            start: left_top,
+            control1: (left_top.0, left_top.1 - handle),
+            control2: (top_left.0 - handle, top_left.1),
+            end: top_left,
+        }),
+    ]
 }
 
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
@@ -8471,6 +8841,26 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_rounded_rect_bitmap(radius: f64) -> Bitmap {
+        const CANVAS: usize = 256;
+        let left = 54.0;
+        let top = 62.0;
+        let right = 202.0;
+        let bottom = 194.0;
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    let point = (x as f64 + 0.5, y as f64 + 0.5);
+                    let nearest_x = point.0.clamp(left + radius, right - radius);
+                    let nearest_y = point.1.clamp(top + radius, bottom - radius);
+                    (point.0 - nearest_x).powi(2) + (point.1 - nearest_y).powi(2) <= radius * radius
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn point_is_inside_triangle(
         point: (f64, f64),
         a: (f64, f64),
@@ -9032,6 +9422,38 @@ mod tests {
     }
 
     #[test]
+    fn pixel_rounded_rect_trace_avoids_fragmented_stair_step_path() {
+        let bitmap = parity_rounded_rect_bitmap(18.0);
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("rounded rectangle path should render");
+        let command_count = compact_path_command_count(&data);
+
+        assert!(
+            command_count <= 19,
+            "rounded rectangle trace fragmented into too many commands: {data}"
+        );
+    }
+
+    #[test]
     fn pixel_small_circle_primitive_uses_potrace_three_cubic_template() {
         let bitmap = parity_two_circles_bitmap();
         let traced = trace_bitmap(
@@ -9227,6 +9649,32 @@ mod tests {
         assert_eq!(pruned.len(), 4);
         assert_eq!(pruned[0].start(), (0.0, -1.8));
         assert_eq!(start, cleaned[0].start());
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_snaps_near_axis_lines_continuously() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (10.0, 0.4),
+            },
+            SvgPathSegment::Cubic(line_as_cubic((10.0, 0.4), (10.0, 10.0))),
+            SvgPathSegment::Line {
+                start: (10.0, 10.0),
+                end: (0.0, 9.8),
+            },
+            SvgPathSegment::Cubic(line_as_cubic((0.0, 9.8), (0.0, 0.0))),
+        ];
+
+        let snapped = snap_near_axis_potrace_lines(segments);
+
+        assert_eq!(snapped[0].start(), (0.0, 0.2));
+        assert_eq!(snapped[0].end(), (10.0, 0.2));
+        assert_eq!(snapped[1].start(), (10.0, 0.2));
+        assert_eq!(snapped[1].end(), (10.0, 9.9));
+        assert_eq!(snapped[2].start(), (10.0, 9.9));
+        assert_eq!(snapped[2].end(), (0.0, 9.9));
+        assert_eq!(snapped[3].start(), (0.0, 9.9));
     }
 
     #[test]

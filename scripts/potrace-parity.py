@@ -92,6 +92,18 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 25,
         "icon_d_bytes": 179,
     },
+    "rounded_rect_r18": {
+        "mask_ae_pixels": 94,
+        "icon_command_count": 19,
+        "icon_svg_point_count": 34,
+        "icon_d_bytes": 181,
+    },
+    "rounded_rect_r32": {
+        "mask_ae_pixels": 261,
+        "icon_command_count": 25,
+        "icon_svg_point_count": 52,
+        "icon_d_bytes": 302,
+    },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
@@ -161,6 +173,8 @@ def fixtures() -> list[Fixture]:
         Fixture("triangle", shape_triangle()),
         Fixture("roundbar", shape_roundbar()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
+        Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
+        Fixture("rounded_rect_r32", shape_rounded_rect(32.0)),
     ]
 
 
@@ -217,6 +231,19 @@ def shape_roundbar() -> list[bool]:
         ) or (
             left <= px < right and top + radius <= py < bottom - radius
         ) or (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius
+
+    return fill(inside)
+
+
+def shape_rounded_rect(radius: float) -> list[bool]:
+    left, top, right, bottom = 54.0, 62.0, 202.0, 194.0
+
+    def inside(x: int, y: int) -> bool:
+        px = x + 0.5
+        py = y + 0.5
+        nearest_x = min(max(px, left + radius), right - radius)
+        nearest_y = min(max(py, top + radius), bottom - radius)
+        return (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius
 
     return fill(inside)
 
