@@ -5011,22 +5011,49 @@ fn compact_segments_without_redundant_closing_line(
     start: (f64, f64),
     segments: &[SvgPathSegment],
 ) -> &[SvgPathSegment] {
+    let mut trimmed = segments;
     let Some(SvgPathSegment::Line {
         start: line_start,
         end,
-    }) = segments.last()
+    }) = trimmed.last()
     else {
-        return segments;
+        return trimmed;
     };
 
-    if segments.len() > 1
+    if trimmed.len() > 1
         && distance_squared_float(*end, start) <= 1.0e-9
-        && distance_squared_float(segments[segments.len() - 2].end(), *line_start) <= 1.0e-9
+        && distance_squared_float(trimmed[trimmed.len() - 2].end(), *line_start) <= 1.0e-9
     {
-        &segments[..segments.len() - 1]
-    } else {
-        segments
+        trimmed = &trimmed[..trimmed.len() - 1];
     }
+
+    let Some(SvgPathSegment::Line {
+        start: line_start,
+        end,
+    }) = trimmed.last()
+    else {
+        return trimmed;
+    };
+
+    if trimmed.len() > 1 && closing_line_continues_last_line(*line_start, *end, start) {
+        &trimmed[..trimmed.len() - 1]
+    } else {
+        trimmed
+    }
+}
+
+fn closing_line_continues_last_line(
+    line_start: (f64, f64),
+    line_end: (f64, f64),
+    close_end: (f64, f64),
+) -> bool {
+    let line = subtract(line_end, line_start);
+    let close = subtract(close_end, line_end);
+
+    vector_length_squared(line) > f64::EPSILON
+        && vector_length_squared(close) > f64::EPSILON
+        && cross(line, close).abs() <= 1.0e-9
+        && dot(line, close) > 0.0
 }
 
 fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -> Option<String> {
@@ -7187,6 +7214,32 @@ mod tests {
             SvgPathSegment::Line {
                 start: (0.0, 10.0),
                 end: (0.0, 0.0),
+            },
+        ];
+
+        let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
+
+        assert_eq!(data, "M0 0l10 0 0 10-10 0Z");
+    }
+
+    #[test]
+    fn compact_path_data_omits_collinear_line_before_close() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (10.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 0.0),
+                end: (10.0, 10.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 10.0),
+                end: (0.0, 10.0),
+            },
+            SvgPathSegment::Line {
+                start: (0.0, 10.0),
+                end: (0.0, 5.0),
             },
         ];
 

@@ -52,9 +52,9 @@ ICON_OPTS = (
 PARITY_LIMITS = {
     "square": {
         "mask_ae_pixels": 0,
-        "icon_command_count": 6,
-        "icon_svg_point_count": 5,
-        "icon_d_bytes": 30,
+        "icon_command_count": 5,
+        "icon_svg_point_count": 4,
+        "icon_d_bytes": 25,
     },
     "circle": {
         "mask_ae_pixels": 16,
