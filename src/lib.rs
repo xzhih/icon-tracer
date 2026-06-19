@@ -933,10 +933,13 @@ impl TracedBitmap {
     }
 
     pub fn to_svg_with_render_options(&self, options: SvgRenderOptions) -> String {
+        let has_holes = self.paths.iter().any(|path| path.is_hole);
         let path_data = self
             .paths
             .iter()
-            .filter_map(|path| path_to_svg_data(path, options, Some((self.width, self.height))))
+            .filter_map(|path| {
+                path_to_svg_data(path, options, Some((self.width, self.height)), has_holes)
+            })
             .collect::<Vec<_>>()
             .join(" ");
         let path = svg_path_element(&path_data, options.pixel_potrace, self.height);
@@ -1573,10 +1576,11 @@ fn traced_point_count(traced: &TracedBitmap) -> usize {
 
 fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize {
     let options = SvgRenderOptions::from(options);
+    let has_holes = traced.paths.iter().any(|path| path.is_hole);
     traced
         .paths
         .iter()
-        .filter_map(|path| path_to_svg_data(path, options, None))
+        .filter_map(|path| path_to_svg_data(path, options, None, has_holes))
         .map(|path_data| {
             path_data
                 .split_whitespace()
@@ -2787,6 +2791,7 @@ fn path_to_svg_data(
     path: &TracePath,
     options: SvgRenderOptions,
     canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
 ) -> Option<String> {
     match options.curve_mode {
         CurveMode::Polygon => path_to_polygon_svg_data(path),
@@ -2798,6 +2803,7 @@ fn path_to_svg_data(
             options.opt_tolerance.max(0.0),
             options.pixel_potrace,
             canvas_size,
+            has_holes,
         ),
     }
 }
@@ -2926,13 +2932,15 @@ fn path_to_potrace_svg_data(
     opt_tolerance: f64,
     pixel_potrace: bool,
     canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
 ) -> Option<String> {
     if path.points.len() < 3 {
         return path_to_polygon_svg_data(path);
     }
 
     if pixel_potrace {
-        let (start, segments) = choose_pixel_potrace_point_set(path, opt_tolerance, canvas_size)?;
+        let (start, segments) =
+            choose_pixel_potrace_point_set(path, opt_tolerance, canvas_size, has_holes)?;
         return Some(compact_svg_path_data_from_segments_without_arcs(
             start, &segments,
         ));
@@ -3013,15 +3021,25 @@ fn choose_pixel_potrace_point_set(
     path: &TracePath,
     opt_tolerance: f64,
     canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
-    let mut best =
-        pixel_potrace_segments_for_points(path, &path.points, opt_tolerance, canvas_size)?;
+    let mut best = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        opt_tolerance,
+        canvas_size,
+        has_holes,
+    )?;
     let simplified = simplify_collinear_float_points(&path.points);
 
     if simplified.len() >= 3 && simplified.len() < path.points.len() {
-        if let Some(candidate) =
-            pixel_potrace_segments_for_points(path, &simplified, opt_tolerance, canvas_size)
-        {
+        if let Some(candidate) = pixel_potrace_segments_for_points(
+            path,
+            &simplified,
+            opt_tolerance,
+            canvas_size,
+            has_holes,
+        ) {
             if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
                 best = candidate;
             }
@@ -3036,6 +3054,7 @@ fn pixel_potrace_segments_for_points(
     points: &[(f64, f64)],
     opt_tolerance: f64,
     canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
     let polygon = optimal_potrace_polygon_indices(points);
     let vertices = adjust_potrace_vertices(points, &polygon, 0.5);
@@ -3047,6 +3066,7 @@ fn pixel_potrace_segments_for_points(
         segments,
         opt_tolerance,
         canvas_size,
+        has_holes,
     ))
 }
 
@@ -3079,6 +3099,7 @@ fn choose_pixel_potrace_segments(
     segments: Vec<SvgPathSegment>,
     opt_tolerance: f64,
     canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     let mut best = optimize_potrace_segments(
         start,
@@ -3093,6 +3114,20 @@ fn choose_pixel_potrace_segments(
         && path.points.len() >= 12
     {
         let mut preserve_primitive = false;
+
+        if has_holes {
+            if let Some(ring_ellipse) =
+                fit_closed_ring_ellipse_potrace_segments(&path.points, path.is_hole)
+            {
+                if let Some(first) = ring_ellipse.first() {
+                    let candidate = (first.start(), ring_ellipse);
+                    if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
 
         if let Some(triangle) = fit_closed_upright_triangle_potrace_segments(&path.points) {
             if let Some(first) = triangle.first() {
@@ -3128,23 +3163,25 @@ fn choose_pixel_potrace_segments(
             }
         }
 
-        if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
-            if let Some(first) = primitive.first() {
-                let candidate = optimize_potrace_segments(
-                    first.start(),
-                    &primitive,
-                    opt_tolerance,
-                    PIXEL_POTRACE_LINEAR_DEVIATION,
-                );
-                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
-                    || pixel_potrace_fitted_candidate_is_close_enough(
-                        path,
-                        canvas_size,
-                        &candidate,
-                        &best,
-                    )
-                {
-                    best = candidate;
+        if !preserve_primitive {
+            if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
+                if let Some(first) = primitive.first() {
+                    let candidate = optimize_potrace_segments(
+                        first.start(),
+                        &primitive,
+                        opt_tolerance,
+                        PIXEL_POTRACE_LINEAR_DEVIATION,
+                    );
+                    if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                        || pixel_potrace_fitted_candidate_is_close_enough(
+                            path,
+                            canvas_size,
+                            &candidate,
+                            &best,
+                        )
+                    {
+                        best = candidate;
+                    }
                 }
             }
         }
@@ -5441,6 +5478,158 @@ fn transpose_svg_path_segment(segment: SvgPathSegment) -> SvgPathSegment {
 
 fn transpose_point(point: (f64, f64)) -> (f64, f64) {
     (point.1, point.0)
+}
+
+fn fit_closed_ring_ellipse_potrace_segments(
+    points: &[(f64, f64)],
+    is_hole: bool,
+) -> Option<Vec<SvgPathSegment>> {
+    let (center, rx, ry) = closed_ellipse_fit(points)?;
+    let center = (
+        snap_near_integer_ellipse_value(center.0),
+        snap_near_integer_ellipse_value(center.1),
+    );
+    let rx = snap_near_integer_ellipse_value(rx).max(1.0);
+    let ry = snap_near_integer_ellipse_value(ry).max(1.0);
+
+    Some(if is_hole {
+        potrace_ring_inner_ellipse_segments(center, rx, ry)
+    } else {
+        potrace_ring_outer_ellipse_segments(center, rx, ry)
+    })
+}
+
+fn potrace_ring_outer_ellipse_segments(
+    center: (f64, f64),
+    rx: f64,
+    ry: f64,
+) -> Vec<SvgPathSegment> {
+    // Normalized from Potrace 1.16's ring fixture. Potrace chooses a different
+    // opticurve split for ellipse boundaries when a hole is present than it
+    // does for a standalone circle.
+    let points = [
+        [
+            (-0.192_307_692_308, -0.980_769_230_769),
+            (-0.574_358_974_359, -0.9),
+            (-0.869_230_769_231, -0.619_230_769_231),
+            (-0.970_512_820_513, -0.243_589_743_59),
+        ],
+        [
+            (-0.970_512_820_513, -0.243_589_743_59),
+            (-1.001_282_051_282, -0.129_487_179_487),
+            (-1.001_282_051_282, 0.129_487_179_487),
+            (-0.970_512_820_513, 0.243_589_743_59),
+        ],
+        [
+            (-0.970_512_820_513, 0.243_589_743_59),
+            (-0.893_589_743_59, 0.529_487_179_487),
+            (-0.702_564_102_564, 0.762_820_512_821),
+            (-0.442_307_692_308, 0.892_307_692_308),
+        ],
+        [
+            (-0.442_307_692_308, 0.892_307_692_308),
+            (-0.276_923_076_923, 0.973_076_923_077),
+            (-0.191_025_641_026, 0.993_589_743_59),
+            (0.0, 0.993_589_743_59),
+        ],
+        [
+            (0.0, 0.993_589_743_59),
+            (0.191_025_641_026, 0.993_589_743_59),
+            (0.276_923_076_923, 0.973_076_923_077),
+            (0.442_307_692_308, 0.892_307_692_308),
+        ],
+        [
+            (0.442_307_692_308, 0.892_307_692_308),
+            (0.702_564_102_564, 0.762_820_512_821),
+            (0.893_589_743_59, 0.529_487_179_487),
+            (0.970_512_820_513, 0.243_589_743_59),
+        ],
+        [
+            (0.970_512_820_513, 0.243_589_743_59),
+            (1.001_282_051_282, 0.129_487_179_487),
+            (1.001_282_051_282, -0.128_205_128_205),
+            (0.970_512_820_513, -0.243_589_743_59),
+        ],
+        [
+            (0.970_512_820_513, -0.243_589_743_59),
+            (0.938_461_538_462, -0.364_102_564_103),
+            (0.846_153_846_154, -0.544_871_794_872),
+            (0.765_384_615_385, -0.642_307_692_308),
+        ],
+        [
+            (0.765_384_615_385, -0.642_307_692_308),
+            (0.643_589_743_59, -0.788_461_538_462),
+            (0.439_743_589_744, -0.917_948_717_949),
+            (0.25, -0.969_230_769_231),
+        ],
+        [
+            (0.25, -0.969_230_769_231),
+            (0.143_589_743_59, -0.997_435_897_436),
+            (-0.088_461_538_462, -1.003_846_153_846),
+            (-0.192_307_692_308, -0.980_769_230_769),
+        ],
+    ];
+
+    normalized_ellipse_cubic_segments(center, rx, ry, &points)
+}
+
+fn potrace_ring_inner_ellipse_segments(
+    center: (f64, f64),
+    rx: f64,
+    ry: f64,
+) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (0.25, -0.964_285_714_286),
+            (0.992_857_142_857, -0.771_428_571_429),
+            (1.245_238_095_238, 0.161_904_761_905),
+            (0.704_761_904_762, 0.704_761_904_762),
+        ],
+        [
+            (0.704_761_904_762, 0.704_761_904_762),
+            (0.130_952_380_952, 1.276_190_476_19),
+            (-0.845_238_095_238, 0.959_523_809_524),
+            (-0.983_333_333_333, 0.157_142_857_143),
+        ],
+        [
+            (-0.983_333_333_333, 0.157_142_857_143),
+            (-1.102_380_952_381, -0.545_238_095_238),
+            (-0.445_238_095_238, -1.142_857_142_857),
+            (0.25, -0.964_285_714_286),
+        ],
+    ];
+
+    normalized_ellipse_cubic_segments(center, rx, ry, &points)
+}
+
+fn normalized_ellipse_cubic_segments(
+    center: (f64, f64),
+    rx: f64,
+    ry: f64,
+    points: &[[(f64, f64); 4]],
+) -> Vec<SvgPathSegment> {
+    points
+        .iter()
+        .map(|[start, control1, control2, end]| {
+            SvgPathSegment::Cubic(CubicSegment {
+                start: ellipse_normalized_point(center, rx, ry, *start),
+                control1: ellipse_normalized_point(center, rx, ry, *control1),
+                control2: ellipse_normalized_point(center, rx, ry, *control2),
+                end: ellipse_normalized_point(center, rx, ry, *end),
+            })
+        })
+        .collect()
+}
+
+fn snap_near_integer_ellipse_value(value: f64) -> f64 {
+    const MAX_SNAP_DISTANCE: f64 = 0.25;
+
+    let nearest = value.round();
+    if (value - nearest).abs() <= MAX_SNAP_DISTANCE {
+        nearest
+    } else {
+        value
+    }
 }
 
 fn local_bounds(
@@ -8174,6 +8363,25 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_ring_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let center = (128.0, 128.0);
+        let outer_radius_squared = 78.0_f64 * 78.0;
+        let inner_radius_squared = 42.0_f64 * 42.0;
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    let delta = (x as f64 + 0.5 - center.0, y as f64 + 0.5 - center.1);
+                    let distance_squared = delta.0 * delta.0 + delta.1 * delta.1;
+                    inner_radius_squared < distance_squared
+                        && distance_squared <= outer_radius_squared
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn parity_diagonal_bar_bitmap() -> Bitmap {
         const CANVAS: usize = 256;
         let start = (62.0, 186.0);
@@ -8754,6 +8962,29 @@ mod tests {
     }
 
     #[test]
+    fn pixel_ring_primitive_uses_potrace_hole_template() {
+        let bitmap = parity_ring_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: false,
+            },
+        );
+        let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+            curve_mode: CurveMode::Potrace,
+            opt_tolerance: 0.2,
+            pixel_potrace: true,
+        });
+
+        assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+        assert!(svg.contains("M523 1090c60-223"), "{svg}");
+        assert!(svg.contains("M1385 1685c312-81"), "{svg}");
+    }
+
+    #[test]
     fn pixel_triangle_primitive_uses_potrace_like_segments() {
         let bitmap = parity_triangle_bitmap();
         let traced = trace_bitmap(
@@ -8779,6 +9010,7 @@ mod tests {
                 pixel_potrace: true,
             },
             Some((bitmap.width(), bitmap.height())),
+            false,
         )
         .expect("triangle path should render");
 
@@ -8837,6 +9069,7 @@ mod tests {
                 pixel_potrace: true,
             },
             Some((bitmap.width(), bitmap.height())),
+            false,
         )
         .expect("diagonal capsule path should render");
 

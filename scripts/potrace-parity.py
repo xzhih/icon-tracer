@@ -62,6 +62,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 16,
         "icon_d_bytes": 125,
     },
+    "ring": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 17,
+        "icon_svg_point_count": 40,
+        "icon_d_bytes": 297,
+    },
     "triangle": {
         "mask_ae_pixels": 0,
         "icon_command_count": 8,
@@ -144,6 +150,7 @@ def fixtures() -> list[Fixture]:
     return [
         Fixture("square", shape_square()),
         Fixture("circle", shape_circle()),
+        Fixture("ring", shape_ring()),
         Fixture("triangle", shape_triangle()),
         Fixture("roundbar", shape_roundbar()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
@@ -158,6 +165,17 @@ def shape_circle() -> list[bool]:
     cx = cy = CANVAS / 2
     radius = 76
     return fill(lambda x, y: (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= radius * radius)
+
+
+def shape_ring() -> list[bool]:
+    cx = cy = CANVAS / 2
+    outer_radius = 78
+    inner_radius = 42
+    return fill(
+        lambda x, y: inner_radius * inner_radius
+        < (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2
+        <= outer_radius * outer_radius
+    )
 
 
 def shape_triangle() -> list[bool]:
