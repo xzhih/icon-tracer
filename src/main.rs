@@ -388,6 +388,10 @@ fn push_candidate_json(
         "{nested}\"point_count\": {},\n",
         candidate.point_count
     ));
+    json.push_str(&format!(
+        "{nested}\"svg_command_count\": {},\n",
+        candidate.svg_command_count
+    ));
     json.push_str(&format!("{nested}\"metrics\": {{\n"));
 
     let metric_indent = " ".repeat(indent + 4);

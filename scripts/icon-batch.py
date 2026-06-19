@@ -92,7 +92,8 @@ def main() -> int:
                 f"{index:02d} {source.name:45} "
                 f"{row['contour_mode']:8} tol={row['opt_tolerance']} "
                 f"iou={row['iou']:.6f} fg_err={row['foreground_error_ratio']:.6f} "
-                f"points={row['point_count']} paths={row['path_count']}"
+                f"points={row['point_count']} cmds={row['svg_command_count']} "
+                f"paths={row['path_count']}"
             )
 
     write_json(out_dir / "summary.json", rows)
@@ -149,6 +150,8 @@ def process_icon(
         "foreground_error_ratio": 0.0,
         "path_count": 0,
         "point_count": 0,
+        "svg_command_count": 0,
+        "target_foreground_pixels": 0,
         "error": "",
     }
 
@@ -166,6 +169,8 @@ def process_icon(
                 "foreground_error_ratio": float(metrics.get("foreground_error_ratio", 0.0)),
                 "path_count": int(best.get("path_count", 0)),
                 "point_count": int(best.get("point_count", 0)),
+                "svg_command_count": int(best.get("svg_command_count", 0)),
+                "target_foreground_pixels": int(metrics.get("target_foreground_pixels", 0)),
             }
         )
     except Exception as error:  # noqa: BLE001 - keep batch running for bad samples.
@@ -220,7 +225,7 @@ def write_contact_sheet(path: Path, rows: list[dict]) -> None:
         else:
             label = (
                 f"{row['index']:02d} {row['contour_mode']} P{row['point_count']} "
-                f"IoU {row['iou']:.4f}"
+                f"C{row['svg_command_count']} IoU {row['iou']:.4f}"
             )
         draw.text((x, y + thumb + 4), label, fill="black", font=font)
         draw.text((x, y + thumb + 20), Path(row["input"]).name[:46], fill="black", font=font)
@@ -269,6 +274,8 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         "foreground_error_ratio",
         "path_count",
         "point_count",
+        "svg_command_count",
+        "target_foreground_pixels",
         "svg",
         "png",
         "report",

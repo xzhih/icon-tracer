@@ -1,7 +1,7 @@
 use icon_tracer::{
-    compare_icon_masks, optimize_icon_trace, trace_bitmap, trace_scalar_field, BinaryMask, Bitmap,
-    ContourMode, CurveMode, IconOptimizeOptions, RasterOptions, Rgba8, RgbaImage, ScalarField,
-    SvgOptions, ThresholdMode, TraceOptions, TracePath, TracedBitmap,
+    compare_icon_masks, optimize_icon_trace, trace_bitmap, trace_scalar_field, AlphaBackground,
+    BinaryMask, Bitmap, ContourMode, CurveMode, IconOptimizeOptions, RasterOptions, Rgba8,
+    RgbaImage, ScalarField, SvgOptions, ThresholdMode, TraceOptions, TracePath, TracedBitmap,
 };
 
 #[test]
@@ -552,6 +552,178 @@ fn optimize_icon_trace_isolates_foreground_from_icon_background() {
 
     assert_eq!(result.best_candidate.metrics.target_foreground_pixels, 4);
     assert!(result.best_candidate.metrics.iou >= 0.75);
+}
+
+#[test]
+fn optimize_icon_trace_accepts_small_edge_pruned_foreground() {
+    let pixels = (0..40)
+        .flat_map(|y| {
+            (0..40).map(move |x| {
+                let center_logo = (10..30).contains(&x) && (10..30).contains(&y);
+                let edge_highlight = y == 39 && x >= 20;
+                let corner_noise = y == 36 && (36..39).contains(&x);
+
+                if center_logo || edge_highlight || corner_noise {
+                    rgba(255, 255, 255)
+                } else {
+                    rgba(0, 0, 0)
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let image = RgbaImage::from_rows(40, 40, &pixels).expect("image should be valid");
+
+    let result = optimize_icon_trace(
+        &image,
+        IconOptimizeOptions {
+            raster_options: RasterOptions {
+                threshold: ThresholdMode::Fixed(128),
+                invert: true,
+                alpha_background: AlphaBackground::Black,
+            },
+            contour_modes: vec![ContourMode::Subpixel],
+            opt_tolerances: vec![0.0],
+            isolate_foreground: true,
+            ..IconOptimizeOptions::default()
+        },
+    )
+    .expect("optimizer should run");
+
+    assert_eq!(result.best_candidate.metrics.target_foreground_pixels, 400);
+    assert_eq!(result.best_candidate.path_count, 1);
+}
+
+#[test]
+fn optimize_icon_trace_preserves_disconnected_corner_mark_without_edge_residue() {
+    let pixels = (0..40)
+        .flat_map(|y| {
+            (0..40).map(move |x| {
+                let center_logo = (10..30).contains(&x) && (10..30).contains(&y);
+                let corner_mark = y == 36 && (36..39).contains(&x);
+
+                if center_logo || corner_mark {
+                    rgba(255, 255, 255)
+                } else {
+                    rgba(0, 0, 0)
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let image = RgbaImage::from_rows(40, 40, &pixels).expect("image should be valid");
+
+    let result = optimize_icon_trace(
+        &image,
+        IconOptimizeOptions {
+            raster_options: RasterOptions {
+                threshold: ThresholdMode::Fixed(128),
+                invert: true,
+                alpha_background: AlphaBackground::Black,
+            },
+            contour_modes: vec![ContourMode::Subpixel],
+            opt_tolerances: vec![0.0],
+            isolate_foreground: true,
+            ..IconOptimizeOptions::default()
+        },
+    )
+    .expect("optimizer should run");
+
+    assert_eq!(result.best_candidate.metrics.target_foreground_pixels, 403);
+    assert_eq!(result.best_candidate.path_count, 2);
+}
+
+#[test]
+fn optimize_icon_trace_reports_svg_complexity() {
+    let pixels = (0..32)
+        .flat_map(|y| {
+            (0..32).map(move |x| {
+                let dx = x as f64 + 0.5 - 16.0;
+                let dy = y as f64 + 0.5 - 16.0;
+
+                if dx * dx + dy * dy <= 10.0 * 10.0 {
+                    rgba(255, 255, 255)
+                } else {
+                    rgba(0, 0, 0)
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let image = RgbaImage::from_rows(32, 32, &pixels).expect("image should be valid");
+
+    let result = optimize_icon_trace(
+        &image,
+        IconOptimizeOptions {
+            raster_options: RasterOptions {
+                threshold: ThresholdMode::Fixed(128),
+                invert: true,
+                ..RasterOptions::default()
+            },
+            contour_modes: vec![ContourMode::Subpixel],
+            opt_tolerances: vec![0.25, 0.75],
+            ..IconOptimizeOptions::default()
+        },
+    )
+    .expect("optimizer should run");
+
+    let tight_candidate = result
+        .candidates
+        .iter()
+        .find(|candidate| (candidate.trace_options.opt_tolerance - 0.25).abs() < f64::EPSILON)
+        .expect("tight candidate should exist");
+
+    assert!(result.best_candidate.svg_command_count > 0);
+    assert!(tight_candidate.svg_command_count >= result.best_candidate.svg_command_count);
+}
+
+#[test]
+fn optimize_icon_trace_limits_complexity_tradeoff_to_close_fits() {
+    let pixels = (0..48)
+        .flat_map(|y| {
+            (0..48).map(move |x| {
+                let dx = x as f64 + 0.5 - 24.0;
+                let dy = y as f64 + 0.5 - 24.0;
+                let in_ring = dx * dx + dy * dy <= 16.0 * 16.0 && dx * dx + dy * dy >= 8.0 * 8.0;
+
+                if in_ring {
+                    rgba(255, 255, 255)
+                } else {
+                    rgba(0, 0, 0)
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let image = RgbaImage::from_rows(48, 48, &pixels).expect("image should be valid");
+
+    let result = optimize_icon_trace(
+        &image,
+        IconOptimizeOptions {
+            raster_options: RasterOptions {
+                threshold: ThresholdMode::Fixed(128),
+                invert: true,
+                ..RasterOptions::default()
+            },
+            contour_modes: vec![ContourMode::Subpixel],
+            opt_tolerances: vec![0.25, 6.0],
+            ..IconOptimizeOptions::default()
+        },
+    )
+    .expect("optimizer should run");
+    let best_fit = result
+        .candidates
+        .iter()
+        .min_by(|left, right| {
+            left.metrics
+                .foreground_error_ratio
+                .total_cmp(&right.metrics.foreground_error_ratio)
+        })
+        .expect("optimizer should report candidates");
+
+    assert!(
+        result.best_candidate.metrics.foreground_error_ratio
+            <= best_fit.metrics.foreground_error_ratio + 0.002,
+        "selected candidate degraded fit too far: best={:?}, best_fit={:?}",
+        result.best_candidate,
+        best_fit
+    );
 }
 
 fn rgba(red: u8, green: u8, blue: u8) -> Rgba8 {

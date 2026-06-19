@@ -837,6 +837,7 @@ pub struct IconOptimizationCandidate {
     pub score: f64,
     pub path_count: usize,
     pub point_count: usize,
+    pub svg_command_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1060,9 +1061,7 @@ pub fn optimize_icon_trace(
         options.opt_tolerances.clone()
     };
 
-    let mut best_traced = None;
-    let mut best_candidate = None;
-    let mut candidates = Vec::new();
+    let mut evaluated_candidates = Vec::new();
 
     for contour_mode in contour_modes {
         for opt_tolerance in &opt_tolerances {
@@ -1080,31 +1079,39 @@ pub fn optimize_icon_trace(
             let metrics = compare_icon_masks(&target_mask, &candidate_mask)?;
             let path_count = traced.paths.len();
             let point_count = traced_point_count(&traced);
-            let score = icon_candidate_score(metrics, point_count, options.complexity_weight);
+            let svg_command_count = traced_svg_command_count(&traced, options.svg_options);
+            let score = icon_candidate_score(
+                metrics,
+                point_count,
+                svg_command_count,
+                options.complexity_weight,
+            );
             let candidate = IconOptimizationCandidate {
                 trace_options,
                 metrics,
                 score,
                 path_count,
                 point_count,
+                svg_command_count,
             };
 
-            if best_candidate
-                .as_ref()
-                .is_none_or(|best| is_better_icon_candidate(&candidate, best))
-            {
-                best_traced = Some(traced);
-                best_candidate = Some(candidate.clone());
-            }
-
-            candidates.push(candidate);
+            evaluated_candidates.push((candidate, traced));
         }
     }
 
+    let candidates = evaluated_candidates
+        .iter()
+        .map(|(candidate, _)| candidate.clone())
+        .collect::<Vec<_>>();
+    let best_index = best_icon_candidate_index(&candidates)
+        .expect("optimizer should evaluate at least one candidate");
+    let best_candidate = candidates[best_index].clone();
+    let best_traced = evaluated_candidates[best_index].1.clone();
+
     Ok(IconOptimizationResult {
-        traced: best_traced.expect("optimizer should evaluate at least one candidate"),
+        traced: best_traced,
         svg_options: options.svg_options,
-        best_candidate: best_candidate.expect("optimizer should evaluate at least one candidate"),
+        best_candidate,
         candidates,
     })
 }
@@ -1120,19 +1127,27 @@ fn isolate_icon_foreground_mask(
     raster_options: RasterOptions,
     fallback: &BinaryMask,
 ) -> BinaryMask {
-    let pruned_fallback = prune_edge_touching_foreground(fallback);
+    let edge_pruned_fallback = prune_edge_touching_foreground(fallback);
+    let pruned_fallback = prune_peripheral_foreground_noise(&edge_pruned_fallback, fallback);
     let fallback_area = mask_area(fallback);
     let pruned_fallback_area = mask_area(&pruned_fallback);
     let fallback_ratio = foreground_ratio(fallback_area, fallback.pixels.len());
 
     if mask_is_plausible_foreground(&pruned_fallback, fallback)
-        && (fallback_ratio > 0.35 || pruned_fallback_area * 10 < fallback_area * 9)
+        && (fallback_ratio > 0.35
+            || pruned_fallback_area * 10 < fallback_area * 9
+            || edge_pruned_foreground_drop_is_useful(
+                fallback_area,
+                pruned_fallback_area,
+                fallback.pixels.len(),
+            ))
     {
         return pruned_fallback;
     }
 
     let contrast = background_contrast_mask(image, raster_options.alpha_background);
-    let pruned_contrast = prune_edge_touching_foreground(&contrast);
+    let edge_pruned_contrast = prune_edge_touching_foreground(&contrast);
+    let pruned_contrast = prune_peripheral_foreground_noise(&edge_pruned_contrast, &contrast);
     let contrast_area = mask_area(&pruned_contrast);
     if mask_is_plausible_foreground(&pruned_contrast, fallback)
         && (fallback_ratio > 0.35
@@ -1258,11 +1273,121 @@ fn prune_edge_touching_foreground(mask: &BinaryMask) -> BinaryMask {
     }
 }
 
+fn prune_peripheral_foreground_noise(mask: &BinaryMask, original: &BinaryMask) -> BinaryMask {
+    let components = connected_components(mask, 1);
+    if components.len() <= 1 {
+        return mask.clone();
+    }
+
+    let original_area = mask_area(original);
+    let mask_area = mask_area(mask);
+    if mask_area >= original_area {
+        return mask.clone();
+    }
+
+    let largest_area = components[0].pixels.len();
+    if !component_area_is_plausible(largest_area, mask.pixels.len()) {
+        return mask.clone();
+    }
+
+    let corner_band = (mask.width.min(mask.height) / 10).max(2);
+    let canvas_noise_cap = ((mask.pixels.len() as f64 * 0.0001).round() as usize).clamp(4, 128);
+    let foreground_noise_cap = (largest_area / 500).max(4);
+    let max_noise_area = canvas_noise_cap.min(foreground_noise_cap);
+    let mut pixels = vec![false; mask.pixels.len()];
+    let mut kept_area = 0usize;
+
+    for component in components {
+        if component.pixels.len() <= max_noise_area {
+            if let Some(corner) =
+                raw_component_corner_band(&component, mask.width, mask.height, corner_band)
+            {
+                if original_has_edge_residue_in_corner(original, corner_band, corner) {
+                    continue;
+                }
+            }
+        }
+
+        kept_area += component.pixels.len();
+        for index in component.pixels {
+            pixels[index] = true;
+        }
+    }
+
+    if !component_area_is_plausible(kept_area, mask.pixels.len()) {
+        return mask.clone();
+    }
+
+    BinaryMask {
+        width: mask.width,
+        height: mask.height,
+        pixels,
+    }
+}
+
 fn raw_component_touches_edge(component: &RawComponent, width: usize, height: usize) -> bool {
     component.min_x == 0
         || component.min_y == 0
         || component.max_x + 1 == width
         || component.max_y + 1 == height
+}
+
+fn raw_component_corner_band(
+    component: &RawComponent,
+    width: usize,
+    height: usize,
+    band: usize,
+) -> Option<(bool, bool)> {
+    let near_left = component.max_x < band;
+    let near_right = component.min_x.saturating_add(band) >= width;
+    let near_top = component.max_y < band;
+    let near_bottom = component.min_y.saturating_add(band) >= height;
+
+    match (near_left, near_right, near_top, near_bottom) {
+        (true, false, true, false) => Some((true, true)),
+        (true, false, false, true) => Some((true, false)),
+        (false, true, true, false) => Some((false, true)),
+        (false, true, false, true) => Some((false, false)),
+        _ => None,
+    }
+}
+
+fn original_has_edge_residue_in_corner(
+    original: &BinaryMask,
+    band: usize,
+    corner: (bool, bool),
+) -> bool {
+    connected_components(original, 1).iter().any(|component| {
+        raw_component_touches_edge(component, original.width, original.height)
+            && raw_component_intersects_corner_band(
+                component,
+                original.width,
+                original.height,
+                band,
+                corner,
+            )
+    })
+}
+
+fn raw_component_intersects_corner_band(
+    component: &RawComponent,
+    width: usize,
+    height: usize,
+    band: usize,
+    corner: (bool, bool),
+) -> bool {
+    let horizontal = if corner.0 {
+        component.min_x < band
+    } else {
+        component.max_x.saturating_add(band) >= width
+    };
+    let vertical = if corner.1 {
+        component.min_y < band
+    } else {
+        component.max_y.saturating_add(band) >= height
+    };
+
+    horizontal && vertical
 }
 
 fn mask_is_plausible_foreground(mask: &BinaryMask, fallback: &BinaryMask) -> bool {
@@ -1272,6 +1397,24 @@ fn mask_is_plausible_foreground(mask: &BinaryMask, fallback: &BinaryMask) -> boo
     component_area_is_plausible(area, mask.pixels.len())
         && (area <= fallback_area.saturating_mul(2).max(1)
             || foreground_ratio(fallback_area, mask.pixels.len()) > 0.35)
+}
+
+fn edge_pruned_foreground_drop_is_useful(
+    fallback_area: usize,
+    pruned_area: usize,
+    total_pixels: usize,
+) -> bool {
+    if pruned_area >= fallback_area {
+        return false;
+    }
+
+    let removed_area = fallback_area - pruned_area;
+    let min_removed_from_canvas = ((total_pixels as f64 * 0.001).round() as usize).max(4);
+    let min_removed_from_foreground = ((fallback_area as f64 * 0.02).round() as usize).max(4);
+    let max_removed_from_foreground = ((fallback_area as f64 * 0.25).round() as usize).max(4);
+
+    removed_area >= min_removed_from_canvas.max(min_removed_from_foreground)
+        && removed_area <= max_removed_from_foreground
 }
 
 fn component_area_is_plausible(area: usize, total: usize) -> bool {
@@ -1327,26 +1470,79 @@ fn traced_point_count(traced: &TracedBitmap) -> usize {
     traced.paths.iter().map(|path| path.points.len()).sum()
 }
 
+fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize {
+    traced
+        .paths
+        .iter()
+        .filter_map(|path| path_to_svg_data(path, options))
+        .map(|path_data| {
+            path_data
+                .split_whitespace()
+                .filter(|token| matches!(*token, "M" | "L" | "C" | "Q" | "Z"))
+                .count()
+        })
+        .sum()
+}
+
+const ICON_COMPLEXITY_FIT_SCORE_BAND: f64 = 0.002;
+
+fn icon_candidate_fit_score(metrics: IconDiffMetrics) -> f64 {
+    metrics.foreground_error_ratio + metrics.false_negative_ratio * 0.5 + (1.0 - metrics.iou) * 0.25
+}
+
+fn icon_candidate_complexity_score(
+    metrics: IconDiffMetrics,
+    point_count: usize,
+    svg_command_count: usize,
+    complexity_weight: f64,
+) -> f64 {
+    let target_foreground_pixels = metrics.target_foreground_pixels.max(1);
+    let complexity_ratio = ratio(point_count, target_foreground_pixels)
+        + ratio(svg_command_count, target_foreground_pixels) * 2.0;
+
+    complexity_weight.max(0.0) * complexity_ratio
+}
+
 fn icon_candidate_score(
     metrics: IconDiffMetrics,
     point_count: usize,
+    svg_command_count: usize,
     complexity_weight: f64,
 ) -> f64 {
-    metrics.foreground_error_ratio
-        + metrics.false_negative_ratio * 0.5
-        + (1.0 - metrics.iou) * 0.25
-        + complexity_weight.max(0.0) * ratio(point_count, metrics.target_foreground_pixels.max(1))
+    icon_candidate_fit_score(metrics)
+        + icon_candidate_complexity_score(
+            metrics,
+            point_count,
+            svg_command_count,
+            complexity_weight,
+        )
 }
 
-fn is_better_icon_candidate(
-    candidate: &IconOptimizationCandidate,
-    best: &IconOptimizationCandidate,
-) -> bool {
-    match candidate.score.total_cmp(&best.score) {
-        std::cmp::Ordering::Less => true,
-        std::cmp::Ordering::Equal => candidate.point_count < best.point_count,
-        std::cmp::Ordering::Greater => false,
-    }
+fn best_icon_candidate_index(candidates: &[IconOptimizationCandidate]) -> Option<usize> {
+    let min_fit_score = candidates
+        .iter()
+        .map(|candidate| icon_candidate_fit_score(candidate.metrics))
+        .min_by(f64::total_cmp)?;
+
+    candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| {
+            icon_candidate_fit_score(candidate.metrics)
+                <= min_fit_score + ICON_COMPLEXITY_FIT_SCORE_BAND
+        })
+        .min_by(|(_, left), (_, right)| compare_eligible_icon_candidates(left, right))
+        .map(|(index, _)| index)
+}
+
+fn compare_eligible_icon_candidates(
+    left: &IconOptimizationCandidate,
+    right: &IconOptimizationCandidate,
+) -> std::cmp::Ordering {
+    left.score
+        .total_cmp(&right.score)
+        .then_with(|| left.svg_command_count.cmp(&right.svg_command_count))
+        .then_with(|| left.point_count.cmp(&right.point_count))
 }
 
 fn rasterize_path_evenodd(path: &TracePath, width: usize, height: usize, pixels: &mut [bool]) {
@@ -4710,5 +4906,49 @@ mod tests {
         let optimized = optimize_potrace_curve_run_graph(&run);
 
         assert_eq!(optimized.len(), 1, "{optimized:?}");
+    }
+
+    #[test]
+    fn icon_candidate_selection_uses_global_fit_band() {
+        let candidates = vec![
+            test_icon_candidate(0.0, 10.0, 100, 100),
+            test_icon_candidate(0.0015, 8.0, 80, 80),
+            test_icon_candidate(0.003, 1.0, 10, 10),
+        ];
+
+        let best_index = best_icon_candidate_index(&candidates).expect("candidates should exist");
+
+        assert_eq!(best_index, 1);
+    }
+
+    fn test_icon_candidate(
+        foreground_error_ratio: f64,
+        score: f64,
+        point_count: usize,
+        svg_command_count: usize,
+    ) -> IconOptimizationCandidate {
+        IconOptimizationCandidate {
+            trace_options: TraceOptions::default(),
+            metrics: IconDiffMetrics {
+                total_pixels: 1000,
+                target_foreground_pixels: 1000,
+                candidate_foreground_pixels: 1000,
+                true_positive_pixels: 1000,
+                false_positive_pixels: 0,
+                false_negative_pixels: 0,
+                xor_pixels: 0,
+                xor_ratio: foreground_error_ratio,
+                foreground_error_ratio,
+                false_positive_ratio: 0.0,
+                false_negative_ratio: 0.0,
+                precision: 1.0,
+                recall: 1.0,
+                iou: 1.0,
+            },
+            score,
+            path_count: 1,
+            point_count,
+            svg_command_count,
+        }
     }
 }
