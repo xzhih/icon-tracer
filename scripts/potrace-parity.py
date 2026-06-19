@@ -239,6 +239,9 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
     rmse = compare_metric(magick, "RMSE", potrace_mask, icon_mask)
     potrace_stats = svg_stats(potrace_svg)
     icon_stats = svg_stats(icon_svg)
+    command_delta = icon_stats["command_count"] - potrace_stats["command_count"]
+    point_delta = icon_stats["point_count"] - potrace_stats["point_count"]
+    d_bytes_delta = icon_stats["d_bytes"] - potrace_stats["d_bytes"]
 
     return {
         "fixture": fixture.name,
@@ -250,6 +253,7 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
         "icon_path_count": icon_stats["path_count"],
         "potrace_command_count": potrace_stats["command_count"],
         "icon_command_count": icon_stats["command_count"],
+        "command_delta": command_delta,
         "command_ratio": ratio(icon_stats["command_count"], potrace_stats["command_count"]),
         "potrace_cubic_count": potrace_stats["cubic_count"],
         "icon_cubic_count": icon_stats["cubic_count"],
@@ -257,9 +261,11 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
         "icon_line_count": icon_stats["line_count"],
         "potrace_svg_point_count": potrace_stats["point_count"],
         "icon_svg_point_count": icon_stats["point_count"],
+        "point_delta": point_delta,
         "point_ratio": ratio(icon_stats["point_count"], potrace_stats["point_count"]),
         "potrace_d_bytes": potrace_stats["d_bytes"],
         "icon_d_bytes": icon_stats["d_bytes"],
+        "d_bytes_delta": d_bytes_delta,
         "d_bytes_ratio": ratio(icon_stats["d_bytes"], potrace_stats["d_bytes"]),
         "potrace_svg_bytes": potrace_svg.stat().st_size,
         "icon_svg_bytes": icon_svg.stat().st_size,
@@ -493,28 +499,34 @@ def write_markdown(path: Path, rows: list[dict]) -> None:
         "",
         f"Mode: `{MODE}`",
         "",
-        "| Fixture | AE ratio | RMSE | Commands icon/potrace | Points icon/potrace | d bytes icon/potrace |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Fixture | AE ratio | RMSE | Commands icon/potrace | cmd delta | Points icon/potrace | point delta | d bytes icon/potrace | byte delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
             f"| {row['fixture']} | {row['mask_ae_ratio']:.6f} | {row['mask_rmse']:.6f} | "
             f"{row['icon_command_count']}/{row['potrace_command_count']} | "
+            f"{row['command_delta']:+d} | "
             f"{row['icon_svg_point_count']}/{row['potrace_svg_point_count']} | "
-            f"{row['icon_d_bytes']}/{row['potrace_d_bytes']} |"
+            f"{row['point_delta']:+d} | "
+            f"{row['icon_d_bytes']}/{row['potrace_d_bytes']} | "
+            f"{row['d_bytes_delta']:+d} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def print_table(rows: list[dict]) -> None:
-    print("fixture        ae_ratio   rmse      commands   points    d_bytes")
+    print("fixture        ae_ratio   rmse      commands  d_cmd  points   d_pts  bytes     b_delta")
     for row in rows:
         print(
             f"{row['fixture']:<14} {row['mask_ae_ratio']:.6f} "
             f"{row['mask_rmse']:.6f} "
             f"{row['icon_command_count']}/{row['potrace_command_count']:<7} "
+            f"{row['command_delta']:+5d} "
             f"{row['icon_svg_point_count']}/{row['potrace_svg_point_count']:<7} "
-            f"{row['icon_d_bytes']}/{row['potrace_d_bytes']}"
+            f"{row['point_delta']:+5d} "
+            f"{row['icon_d_bytes']}/{row['potrace_d_bytes']:<8} "
+            f"{row['d_bytes_delta']:+7d}"
         )
 
 
