@@ -2940,7 +2940,53 @@ fn path_to_potrace_svg_data(
         opt_tolerance,
         STRICT_POTRACE_LINEAR_DEVIATION,
     );
+    let (start, segments) = choose_non_pixel_fit_candidate(path, canvas_size, start, segments);
     Some(svg_path_data_from_segments(start, &segments))
+}
+
+fn choose_non_pixel_fit_candidate(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    start: (f64, f64),
+    segments: Vec<SvgPathSegment>,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
+    const MIN_SEGMENTS: usize = 16;
+    const MAX_EXTRA_SEGMENTS: usize = 2;
+    const FIT_ERROR: f64 = 0.75;
+
+    let Some((width, height)) = canvas_size else {
+        return (start, segments);
+    };
+
+    if points_are_half_pixel_quantized(&path.points) || segments.len() < MIN_SEGMENTS {
+        return (start, segments);
+    }
+
+    if !svg_segments_are_all_cubic(&segments) {
+        return (start, segments);
+    }
+
+    let fitted = fit_closed_cubic_segments(&path.points, FIT_ERROR);
+    let Some(first) = fitted.first() else {
+        return (start, segments);
+    };
+
+    if fitted.len() > segments.len() + MAX_EXTRA_SEGMENTS {
+        return (start, segments);
+    }
+
+    let candidate = (
+        first.start,
+        fitted.into_iter().map(SvgPathSegment::Cubic).collect(),
+    );
+    let current_error =
+        pixel_potrace_candidate_mask_error(path, &(start, segments.clone()), width, height);
+    let candidate_error = pixel_potrace_candidate_mask_error(path, &candidate, width, height);
+    if candidate_error < current_error {
+        candidate
+    } else {
+        (start, segments)
+    }
 }
 
 fn choose_pixel_potrace_point_set(
@@ -5598,6 +5644,12 @@ fn cubic_runs_are_close(
                 distance_squared_to_polyline(point, source_samples).0 <= tolerance_squared
             })
         })
+}
+
+fn svg_segments_are_all_cubic(segments: &[SvgPathSegment]) -> bool {
+    segments
+        .iter()
+        .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
 }
 
 fn distance_squared_to_cubic_segments(point: (f64, f64), segments: &[CubicSegment]) -> f64 {
