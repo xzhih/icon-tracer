@@ -176,7 +176,7 @@ fn cli_potrace_curve_outputs_midpoint_cubic_segments() {
     assert!(status.success());
 
     let svg = fs::read_to_string(&output).expect("SVG should be written");
-    assert!(svg.contains(" C "));
+    assert!(svg.contains(" C ") || svg.contains(" c "));
 
     fs::remove_dir_all(work_dir).expect("temp dir should be removed");
 }

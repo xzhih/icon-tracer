@@ -4209,6 +4209,20 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
 }
 
 fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
+    let absolute = compact_absolute_svg_path_data_from_segments(start, segments);
+    let relative = compact_relative_svg_path_data_from_segments(start, segments);
+
+    if relative.len() < absolute.len() {
+        relative
+    } else {
+        absolute
+    }
+}
+
+fn compact_absolute_svg_path_data_from_segments(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
     let mut data = format!("M {} {}", format_float(start.0), format_float(start.1));
     let mut previous_command: Option<char> = None;
 
@@ -4237,6 +4251,53 @@ fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSeg
                     format_float(cubic.end.0),
                     format_float(cubic.end.1)
                 ));
+            }
+        }
+    }
+
+    data.push_str(" Z");
+    data
+}
+
+fn compact_relative_svg_path_data_from_segments(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
+    let mut data = format!("M {} {}", format_float(start.0), format_float(start.1));
+    let mut previous_command: Option<char> = None;
+    let mut current = start;
+
+    for segment in segments {
+        match segment {
+            SvgPathSegment::Line { end, .. } => {
+                if previous_command != Some('l') {
+                    data.push_str(" l");
+                    previous_command = Some('l');
+                }
+
+                data.push_str(&format!(
+                    " {} {}",
+                    format_float(end.0 - current.0),
+                    format_float(end.1 - current.1)
+                ));
+                current = *end;
+            }
+            SvgPathSegment::Cubic(cubic) => {
+                if previous_command != Some('c') {
+                    data.push_str(" c");
+                    previous_command = Some('c');
+                }
+
+                data.push_str(&format!(
+                    " {} {}, {} {}, {} {}",
+                    format_float(cubic.control1.0 - current.0),
+                    format_float(cubic.control1.1 - current.1),
+                    format_float(cubic.control2.0 - current.0),
+                    format_float(cubic.control2.1 - current.1),
+                    format_float(cubic.end.0 - current.0),
+                    format_float(cubic.end.1 - current.1)
+                ));
+                current = cubic.end;
             }
         }
     }
@@ -5686,6 +5747,46 @@ mod tests {
         let optimized = optimize_potrace_curve_run_graph(&run, 0.2);
 
         assert_eq!(optimized.len(), 1, "{optimized:?}");
+    }
+
+    #[test]
+    fn compact_path_data_uses_relative_segments_when_shorter() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (10.0, 10.0),
+                end: (15.0, 9.0),
+            },
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (15.0, 9.0),
+                control1: (17.0, 9.0),
+                control2: (19.0, 12.0),
+                end: (21.0, 15.0),
+            }),
+        ];
+
+        let data = compact_svg_path_data_from_segments((10.0, 10.0), &segments);
+
+        assert_eq!(data, "M 10 10 l 5 -1 c 2 0, 4 3, 6 6 Z");
+    }
+
+    #[test]
+    fn compact_path_data_keeps_absolute_segments_when_shorter() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (1000.0, 1000.0),
+                end: (0.0, 0.0),
+            },
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (0.0, 0.0),
+                control1: (0.0, 0.0),
+                control2: (0.0, 0.0),
+                end: (0.0, 0.0),
+            }),
+        ];
+
+        let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
+
+        assert_eq!(data, "M 1000 1000 L 0 0 C 0 0, 0 0, 0 0 Z");
     }
 
     #[test]
