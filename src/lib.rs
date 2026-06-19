@@ -967,19 +967,35 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
     if !allow_scaled_potrace_path {
         return plain;
     }
+    let mut best = plain;
 
-    let Some(scaled_path_data) = scaled_integer_svg_path_data(path_data, 100.0) else {
-        return plain;
-    };
-    let scaled = format!(
-        r#"<path fill="black" fill-rule="evenodd" transform="scale(.01)" d="{scaled_path_data}"/>"#
-    );
+    if let Some(scaled_path_data) = scaled_integer_svg_path_data(path_data, 100.0) {
+        let scaled = format!(
+            r#"<path fill="black" fill-rule="evenodd" transform="scale(.01)" d="{scaled_path_data}"/>"#
+        );
 
-    if scaled.len() < plain.len() {
-        scaled
-    } else {
-        plain
+        if scaled.len() < best.len() {
+            best = scaled;
+        }
     }
+
+    if !path_data_has_precision_sensitive_commands(path_data) {
+        if let Some(one_decimal_path_data) = one_decimal_svg_path_data(path_data) {
+            let one_decimal =
+                format!(r#"<path fill="black" fill-rule="evenodd" d="{one_decimal_path_data}"/>"#);
+            if one_decimal.len() < best.len() {
+                best = one_decimal;
+            }
+        }
+    }
+
+    best
+}
+
+fn path_data_has_precision_sensitive_commands(path_data: &str) -> bool {
+    path_data
+        .bytes()
+        .any(|byte| matches!(byte, b'A' | b'a' | b'Q' | b'q'))
 }
 
 pub fn trace_bitmap(bitmap: &Bitmap, options: TraceOptions) -> TracedBitmap {
@@ -4649,7 +4665,16 @@ fn bezier_tangent_parameter(
     let quadratic_c = a;
     let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
 
-    if quadratic_a.abs() <= f64::EPSILON || discriminant < 0.0 {
+    if quadratic_a.abs() <= f64::EPSILON {
+        if quadratic_b.abs() <= f64::EPSILON {
+            return None;
+        }
+
+        let linear = -quadratic_c / quadratic_b;
+        return (0.0..=1.0).contains(&linear).then_some(linear);
+    }
+
+    if discriminant < 0.0 {
         return None;
     }
 
@@ -5264,6 +5289,32 @@ fn scaled_integer_svg_path_data(data: &str, scale_factor: f64) -> Option<String>
         let scaled = (value * scale_factor).round();
         let scaled = if scaled == 0.0 { 0.0 } else { scaled };
         tokens.push(format!("{scaled:.0}"));
+        index = end;
+    }
+
+    Some(minify_svg_path_tokens(&tokens))
+}
+
+fn one_decimal_svg_path_data(data: &str) -> Option<String> {
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+
+    while index < data.len() {
+        let byte = data.as_bytes()[index];
+        if byte.is_ascii_whitespace() || byte == b',' {
+            index += 1;
+            continue;
+        }
+
+        if byte.is_ascii_alphabetic() {
+            tokens.push(data[index..index + 1].to_owned());
+            index += 1;
+            continue;
+        }
+
+        let end = svg_number_token_end(data, index)?;
+        let value = data[index..end].parse::<f64>().ok()?;
+        tokens.push(format_compact_float_with_precision(value, 1));
         index = end;
     }
 
@@ -6498,7 +6549,11 @@ fn format_float(value: f64) -> String {
 }
 
 fn format_compact_float(value: f64) -> String {
-    let mut formatted = format_float_with_precision(value, 2);
+    format_compact_float_with_precision(value, 2)
+}
+
+fn format_compact_float_with_precision(value: f64, precision: usize) -> String {
+    let mut formatted = format_float_with_precision(value, precision);
     if formatted.starts_with("0.") {
         formatted.remove(0);
     } else if formatted.starts_with("-0.") {
@@ -7431,9 +7486,20 @@ mod tests {
         let diagonal_path = svg_path_element(diagonal, true);
         let square_path = svg_path_element(square, true);
 
-        assert!(diagonal_path.contains(r#"transform="scale(.01)""#));
+        assert!(!diagonal_path.contains("transform="), "{diagonal_path}");
+        assert!(diagonal_path.contains("9.6"), "{diagonal_path}");
         assert!(diagonal_path.len() < svg_path_element(diagonal, false).len());
         assert!(!square_path.contains("transform="), "{square_path}");
+    }
+
+    #[test]
+    fn one_decimal_path_element_skips_precision_sensitive_commands() {
+        let triangle = "M84.5 129l42.5-85.25q1-1.12 2 0l42.5 85.25 42.5 84.75-86 .25-86-.25Z";
+
+        let path = svg_path_element(triangle, true);
+
+        assert!(path.contains("-85.25"), "{path}");
+        assert!(path.contains("q1-1.12"), "{path}");
     }
 
     #[test]
@@ -7729,6 +7795,21 @@ mod tests {
 
         assert_eq!(cubic_count, 2, "{optimized:?}");
         assert_eq!(line_count, 2, "{optimized:?}");
+    }
+
+    #[test]
+    fn bezier_tangent_parameter_handles_linear_degenerate_case() {
+        let cubic = CubicSegment {
+            start: (0.0, 0.0),
+            control1: (1.0, 1.0),
+            control2: (2.0, 1.0),
+            end: (3.0, 0.0),
+        };
+
+        let parameter = bezier_tangent_parameter(cubic, (0.0, 0.0), (1.0, 0.0))
+            .expect("linear tangent equation should have an in-range solution");
+
+        assert!((parameter - 0.5).abs() <= 1.0e-9);
     }
 
     #[test]
