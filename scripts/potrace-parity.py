@@ -69,10 +69,10 @@ PARITY_LIMITS = {
         "icon_d_bytes": 60,
     },
     "roundbar": {
-        "mask_ae_pixels": 63,
-        "icon_command_count": 7,
-        "icon_svg_point_count": 12,
-        "icon_d_bytes": 71,
+        "mask_ae_pixels": 1,
+        "icon_command_count": 8,
+        "icon_svg_point_count": 19,
+        "icon_d_bytes": 170,
     },
     "diagonal_bar": {
         "mask_ae_pixels": 43,

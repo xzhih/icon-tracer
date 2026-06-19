@@ -3025,7 +3025,28 @@ fn choose_pixel_potrace_segments(
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
         && path.points.len() >= 12
     {
-        let fitted = fit_closed_smooth_potrace_segments(&path.points, true);
+        if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
+            if let Some(first) = primitive.first() {
+                let candidate = optimize_potrace_segments(
+                    first.start(),
+                    &primitive,
+                    opt_tolerance,
+                    PIXEL_POTRACE_LINEAR_DEVIATION,
+                );
+                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                    || pixel_potrace_fitted_candidate_is_close_enough(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    )
+                {
+                    best = candidate;
+                }
+            }
+        }
+
+        let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
         if let Some(first) = fitted.first() {
             let candidate = optimize_potrace_segments(
                 first.start(),
@@ -3060,6 +3081,24 @@ fn pixel_potrace_candidate_is_better(
 
     compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
         < compact_svg_path_data_from_segments(best.0, &best.1).len()
+}
+
+fn pixel_potrace_fitted_candidate_is_close_enough(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MAX_EXTRA_MASK_PIXELS: usize = 2;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    candidate_error <= best_error.saturating_add(MAX_EXTRA_MASK_PIXELS)
+        && candidate.1.len() >= best.1.len()
 }
 
 fn pixel_potrace_candidate_mask_error(
@@ -4741,11 +4780,8 @@ fn fit_closed_smooth_potrace_segments(
     const SMOOTH_FIT_ERROR: f64 = 1.1;
 
     if allow_ellipse_primitive {
-        if let Some(capsule) = fit_closed_capsule_potrace_segments(points) {
-            return capsule;
-        }
-        if let Some(ellipse) = fit_closed_ellipse_potrace_segments(points) {
-            return ellipse;
+        if let Some(primitive) = fit_closed_potrace_primitive_segments(points) {
+            return primitive;
         }
     }
 
@@ -4760,6 +4796,11 @@ fn fit_closed_smooth_potrace_segments(
     }
 
     segments.into_iter().map(SvgPathSegment::Cubic).collect()
+}
+
+fn fit_closed_potrace_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    fit_closed_capsule_potrace_segments(points)
+        .or_else(|| fit_closed_ellipse_potrace_segments(points))
 }
 
 fn fit_closed_capsule_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
@@ -4822,90 +4863,145 @@ fn capsule_boundary_is_close(
     max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
 }
 
-// Pixel-traced capsules match Potrace more closely with slightly flatter arcs
-// than the mathematical circle kappa.
-const PIXEL_CAPSULE_ARC_KAPPA: f64 = 13.0 / 24.0;
-
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
-    let center_y = (bounds.min_y + bounds.max_y) / 2.0;
-    let left = (bounds.min_x, center_y);
-    let top_left = (bounds.min_x + radius, bounds.min_y);
-    let top_right = (bounds.max_x - radius, bounds.min_y);
-    let right = (bounds.max_x, center_y);
-    let bottom_right = (bounds.max_x - radius, bounds.max_y);
-    let bottom_left = (bounds.min_x + radius, bounds.max_y);
-    let handle = radius * PIXEL_CAPSULE_ARC_KAPPA;
+    let left = bounds.min_x;
+    let right = bounds.max_x;
+    let top = bounds.min_y;
+    let bottom = bounds.max_y;
+    // Potrace fits pixel capsules with six cubics that are slightly squarer
+    // than ideal circular arcs; these offsets scale that bias by radius.
+    let p0 = (
+        left + radius * 0.752_083_333_333_333_3,
+        top + radius * 0.033_333_333_333_333_33,
+    );
+    let p1 = (
+        left + radius * 0.031_25,
+        top + radius * 1.239_583_333_333_333_3,
+    );
+    let p2 = (
+        left + radius * 0.764_583_333_333_333_3,
+        bottom - radius * 0.031_25,
+    );
+    let p3 = (
+        right - radius * 0.760_416_666_666_666_6,
+        bottom - radius * 0.031_25,
+    );
+    let p4 = (
+        right - radius * 0.031_25,
+        top + radius * 0.764_583_333_333_333_3,
+    );
+    let p5 = (
+        right - radius * 0.760_416_666_666_666_6,
+        top + radius * 0.031_25,
+    );
 
-    cubics_to_segments([
-        CubicSegment {
-            start: left,
-            control1: (left.0, left.1 - handle),
-            control2: (top_left.0 - handle, top_left.1),
-            end: top_left,
-        },
-        line_as_cubic(top_left, top_right),
-        CubicSegment {
-            start: top_right,
-            control1: (top_right.0 + handle, top_right.1),
-            control2: (right.0, right.1 - handle),
-            end: right,
-        },
-        CubicSegment {
-            start: right,
-            control1: (right.0, right.1 + handle),
-            control2: (bottom_right.0 + handle, bottom_right.1),
-            end: bottom_right,
-        },
-        line_as_cubic(bottom_right, bottom_left),
-        CubicSegment {
-            start: bottom_left,
-            control1: (bottom_left.0 - handle, bottom_left.1),
-            control2: (left.0, left.1 + handle),
-            end: left,
-        },
-    ])
+    vec![
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p0,
+            control1: (left + radius * 0.225, top + radius * 0.175),
+            control2: (
+                left - radius * 0.102_083_333_333_333_33,
+                top + radius * 0.722_916_666_666_666_7,
+            ),
+            end: p1,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p1,
+            control1: (
+                left + radius * 0.125,
+                bottom - radius * 0.402_083_333_333_333_3,
+            ),
+            control2: (
+                left + radius * 0.404_166_666_666_666_7,
+                bottom - radius * 0.125,
+            ),
+            end: p2,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p2,
+            control1: (
+                left + radius * 0.941_666_666_666_666_7,
+                bottom + radius * 0.014_583_333_333_333_334,
+            ),
+            control2: (
+                right - radius * 0.939_583_333_333_333_3,
+                bottom + radius * 0.014_583_333_333_333_334,
+            ),
+            end: p3,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p3,
+            control1: (
+                right - radius * 0.227_083_333_333_333_33,
+                bottom - radius * 0.170_833_333_333_333_34,
+            ),
+            control2: (
+                right + radius * 0.104_166_666_666_666_67,
+                top + radius * 1.283_333_333_333_333_4,
+            ),
+            end: p4,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p4,
+            control1: (
+                right - radius * 0.125,
+                top + radius * 0.404_166_666_666_666_7,
+            ),
+            control2: (
+                right - radius * 0.402_083_333_333_333_3,
+                top + radius * 0.125,
+            ),
+            end: p5,
+        }),
+        SvgPathSegment::Cubic(CubicSegment {
+            start: p5,
+            control1: (
+                right - radius * 0.935_416_666_666_666_7,
+                top - radius * 0.014_583_333_333_333_334,
+            ),
+            control2: (
+                left + radius * 0.922_916_666_666_666_7,
+                top - radius * 0.012_5,
+            ),
+            end: p0,
+        }),
+    ]
 }
 
 fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
-    let center_x = (bounds.min_x + bounds.max_x) / 2.0;
-    let top = (center_x, bounds.min_y);
-    let right_top = (bounds.max_x, bounds.min_y + radius);
-    let right_bottom = (bounds.max_x, bounds.max_y - radius);
-    let bottom = (center_x, bounds.max_y);
-    let left_bottom = (bounds.min_x, bounds.max_y - radius);
-    let left_top = (bounds.min_x, bounds.min_y + radius);
-    let handle = radius * PIXEL_CAPSULE_ARC_KAPPA;
+    let transposed = FloatBounds {
+        min_x: bounds.min_y,
+        max_x: bounds.max_y,
+        min_y: bounds.min_x,
+        max_y: bounds.max_x,
+    };
 
-    cubics_to_segments([
-        CubicSegment {
-            start: top,
-            control1: (top.0 + handle, top.1),
-            control2: (right_top.0, right_top.1 - handle),
-            end: right_top,
-        },
-        line_as_cubic(right_top, right_bottom),
-        CubicSegment {
-            start: right_bottom,
-            control1: (right_bottom.0, right_bottom.1 + handle),
-            control2: (bottom.0 + handle, bottom.1),
-            end: bottom,
-        },
-        CubicSegment {
-            start: bottom,
-            control1: (bottom.0 - handle, bottom.1),
-            control2: (left_bottom.0, left_bottom.1 + handle),
-            end: left_bottom,
-        },
-        line_as_cubic(left_bottom, left_top),
-        CubicSegment {
-            start: left_top,
-            control1: (left_top.0, left_top.1 - handle),
-            control2: (top.0 - handle, top.1),
-            end: top,
-        },
-    ])
+    horizontal_capsule_segments(transposed, radius)
+        .into_iter()
+        .map(transpose_svg_path_segment)
+        .collect()
 }
 
+fn transpose_svg_path_segment(segment: SvgPathSegment) -> SvgPathSegment {
+    match segment {
+        SvgPathSegment::Line { start, end } => SvgPathSegment::Line {
+            start: transpose_point(start),
+            end: transpose_point(end),
+        },
+        SvgPathSegment::Cubic(cubic) => SvgPathSegment::Cubic(CubicSegment {
+            start: transpose_point(cubic.start),
+            control1: transpose_point(cubic.control1),
+            control2: transpose_point(cubic.control2),
+            end: transpose_point(cubic.end),
+        }),
+    }
+}
+
+fn transpose_point(point: (f64, f64)) -> (f64, f64) {
+    (point.1, point.0)
+}
+
+#[cfg(test)]
 fn line_as_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
     CubicSegment {
         start,
@@ -4913,10 +5009,6 @@ fn line_as_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
         control2: interpolate(start, end, 2.0 / 3.0),
         end,
     }
-}
-
-fn cubics_to_segments(cubics: [CubicSegment; 6]) -> Vec<SvgPathSegment> {
-    cubics.into_iter().map(SvgPathSegment::Cubic).collect()
 }
 
 fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
@@ -7655,6 +7747,65 @@ mod tests {
     }
 
     #[test]
+    fn fitted_candidate_selection_allows_tiny_mask_slack_only() {
+        let path = TracePath {
+            is_hole: false,
+            points: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        };
+        let best = (
+            (0.0, 0.0),
+            vec![
+                SvgPathSegment::Line {
+                    start: (0.0, 0.0),
+                    end: (10.0, 0.0),
+                },
+                SvgPathSegment::Line {
+                    start: (10.0, 0.0),
+                    end: (10.0, 10.0),
+                },
+                SvgPathSegment::Line {
+                    start: (10.0, 10.0),
+                    end: (0.0, 10.0),
+                },
+                SvgPathSegment::Line {
+                    start: (0.0, 10.0),
+                    end: (0.0, 0.0),
+                },
+            ],
+        );
+        let close = (
+            (0.0, 0.0),
+            vec![
+                SvgPathSegment::Cubic(line_as_cubic((0.0, 0.0), (10.0, 0.0))),
+                SvgPathSegment::Cubic(line_as_cubic((10.0, 0.0), (10.0, 10.0))),
+                SvgPathSegment::Cubic(line_as_cubic((10.0, 10.0), (0.0, 10.0))),
+                SvgPathSegment::Cubic(line_as_cubic((0.0, 10.0), (0.0, 0.0))),
+            ],
+        );
+        let far = (
+            (0.0, 0.0),
+            vec![
+                SvgPathSegment::Cubic(line_as_cubic((0.0, 0.0), (10.0, 0.0))),
+                SvgPathSegment::Cubic(line_as_cubic((10.0, 0.0), (0.0, 10.0))),
+                SvgPathSegment::Cubic(line_as_cubic((0.0, 10.0), (0.0, 0.0))),
+            ],
+        );
+
+        assert!(pixel_potrace_fitted_candidate_is_close_enough(
+            &path,
+            Some((12, 12)),
+            &close,
+            &best
+        ));
+        assert!(!pixel_potrace_fitted_candidate_is_close_enough(
+            &path,
+            Some((12, 12)),
+            &far,
+            &best
+        ));
+    }
+
+    #[test]
     fn pixel_trace_can_preserve_collinear_boundary_points() {
         let bitmap =
             Bitmap::from_rows(3, 1, &[true, true, true]).expect("bitmap dimensions should match");
@@ -7738,7 +7889,7 @@ mod tests {
     }
 
     #[test]
-    fn pixel_capsule_primitive_uses_compact_integer_handles() {
+    fn pixel_capsule_primitive_uses_potrace_like_cubics() {
         let bounds = FloatBounds {
             min_x: 40.0,
             max_x: 216.0,
@@ -7753,7 +7904,7 @@ mod tests {
 
         assert_eq!(
             path_data,
-            "M88 176c-26 0-48-22-48-48s22-48 48-48h80c26 0 48 22 48 48s-22 48-48 48Z"
+            "M76.1 81.6c-25.3 6.8-41 33.1-34.6 57.9 4.5 17.2 17.9 30.5 35.2 35 8.5 2.2 94.2 2.2 102.8 0 25.6-6.7 41.5-32.9 35-57.8-4.5-17.3-17.8-30.7-35-35.2-8.4-2.2-95.2-2.1-103.4.1Z"
         );
     }
 
