@@ -4886,7 +4886,7 @@ fn fit_closed_smooth_potrace_segments(
     const SMOOTH_FIT_ERROR: f64 = 1.1;
 
     if allow_ellipse_primitive {
-        if let Some(primitive) = fit_closed_potrace_primitive_segments(points) {
+        if let Some(primitive) = fit_closed_smooth_primitive_segments(points) {
             return primitive;
         }
     }
@@ -4907,6 +4907,11 @@ fn fit_closed_smooth_potrace_segments(
 fn fit_closed_potrace_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
     fit_closed_capsule_potrace_segments(points)
         .or_else(|| fit_closed_ellipse_potrace_segments(points))
+}
+
+fn fit_closed_smooth_primitive_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    fit_closed_capsule_potrace_segments(points)
+        .or_else(|| fit_closed_smooth_ellipse_segments(points))
 }
 
 fn fit_closed_upright_triangle_potrace_segments(
@@ -5475,9 +5480,28 @@ fn line_as_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
 }
 
 fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    let (center, rx, ry) = closed_ellipse_fit(points)?;
+
+    Some(potrace_like_ellipse_segments(center, rx, ry))
+}
+
+fn fit_closed_smooth_ellipse_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const CENTER_BIAS: f64 = -0.5;
+    const RADIUS_BIAS: f64 = -0.2;
+
+    let (center, rx, ry) = closed_ellipse_fit(points)?;
+    let center = (center.0 + CENTER_BIAS, center.1 + CENTER_BIAS);
+    let rx = (rx + RADIUS_BIAS).max(1.0);
+    let ry = (ry + RADIUS_BIAS).max(1.0);
+
+    Some(potrace_like_ellipse_segments(center, rx, ry))
+}
+
+fn closed_ellipse_fit(points: &[(f64, f64)]) -> Option<((f64, f64), f64, f64)> {
     const MIN_AXIS: f64 = 8.0;
     const MAX_RADIAL_ERROR: f64 = 0.075;
     const MAX_MEAN_RADIAL_ERROR: f64 = 0.03;
+
     let bounds = FloatBounds::from_points(points)?;
     let rx = (bounds.max_x - bounds.min_x) / 2.0;
     let ry = (bounds.max_y - bounds.min_y) / 2.0;
@@ -5505,7 +5529,7 @@ fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgP
         return None;
     }
 
-    Some(potrace_like_ellipse_segments(center, rx, ry))
+    Some((center, rx, ry))
 }
 
 fn potrace_like_ellipse_segments(center: (f64, f64), rx: f64, ry: f64) -> Vec<SvgPathSegment> {
@@ -8495,6 +8519,25 @@ mod tests {
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+    }
+
+    #[test]
+    fn closed_smooth_ellipse_fit_removes_half_pixel_bias() {
+        let points = (0..64)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 64.0;
+                (256.5 + angle.cos() * 148.5, 256.5 + angle.sin() * 148.5)
+            })
+            .collect::<Vec<_>>();
+
+        let pixel_segments = fit_closed_ellipse_potrace_segments(&points)
+            .expect("ellipse-like points should fit the pixel primitive");
+        let smooth_segments = fit_closed_smooth_ellipse_segments(&points)
+            .expect("ellipse-like points should fit the smooth primitive");
+
+        assert_eq!(smooth_segments.len(), 5);
+        assert!(smooth_segments[0].start().0 < pixel_segments[0].start().0);
+        assert!(smooth_segments[0].start().1 < pixel_segments[0].start().1);
     }
 
     #[test]
