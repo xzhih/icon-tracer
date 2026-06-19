@@ -3215,8 +3215,8 @@ fn prune_tiny_potrace_curve_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPa
 }
 
 fn potrace_segment_is_tiny_spike(segments: &[SvgPathSegment], index: usize) -> bool {
-    const TINY_CHORD_LENGTH: f64 = 1.25;
-    const TINY_BOUNDS_DIAGONAL: f64 = 1.5;
+    const TINY_CHORD_LENGTH: f64 = 2.1;
+    const TINY_BOUNDS_DIAGONAL: f64 = 2.1;
     const MIN_NEIGHBOR_CHORD_LENGTH: f64 = 4.0;
 
     if index == 0 || index + 1 >= segments.len() {
@@ -3236,6 +3236,27 @@ fn potrace_segment_is_tiny_spike(segments: &[SvgPathSegment], index: usize) -> b
         && cubic_bounds_diagonal(current) <= TINY_BOUNDS_DIAGONAL
         && cubic_chord_length(previous) >= MIN_NEIGHBOR_CHORD_LENGTH
         && cubic_chord_length(next) >= MIN_NEIGHBOR_CHORD_LENGTH
+        && potrace_segment_has_spike_turn(previous, current, next)
+}
+
+fn potrace_segment_has_spike_turn(
+    previous: CubicSegment,
+    current: CubicSegment,
+    next: CubicSegment,
+) -> bool {
+    const MIN_SPIKE_TURN_RADIANS: f64 = 1.0;
+    const MIN_BRIDGED_TURN_RADIANS: f64 = 0.35;
+
+    let previous_vector = cubic_chord_vector(previous);
+    let current_vector = cubic_chord_vector(current);
+    let next_vector = cubic_chord_vector(next);
+    let entry_turn = vector_turn_angle(previous_vector, current_vector);
+    let exit_turn = vector_turn_angle(current_vector, next_vector);
+    let bridged_turn = vector_turn_angle(previous_vector, next_vector);
+
+    entry_turn.max(exit_turn) >= MIN_SPIKE_TURN_RADIANS
+        && (bridged_turn >= MIN_BRIDGED_TURN_RADIANS
+            || (entry_turn >= MIN_SPIKE_TURN_RADIANS && exit_turn >= MIN_SPIKE_TURN_RADIANS))
 }
 
 fn rotate_potrace_segments_after_last_line(segments: &[SvgPathSegment]) -> Vec<SvgPathSegment> {
@@ -3619,6 +3640,10 @@ fn cubic_chord_length(cubic: CubicSegment) -> f64 {
     (cubic.end.0 - cubic.start.0).hypot(cubic.end.1 - cubic.start.1)
 }
 
+fn cubic_chord_vector(cubic: CubicSegment) -> (f64, f64) {
+    (cubic.end.0 - cubic.start.0, cubic.end.1 - cubic.start.1)
+}
+
 fn cubic_bounds_diagonal(cubic: CubicSegment) -> f64 {
     let min_x = cubic
         .start
@@ -3646,6 +3671,17 @@ fn cubic_bounds_diagonal(cubic: CubicSegment) -> f64 {
         .max(cubic.end.1);
 
     (max_x - min_x).hypot(max_y - min_y)
+}
+
+fn vector_turn_angle(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let a = unit_vector(a);
+    let b = unit_vector(b);
+
+    if vector_length_squared(a) <= f64::EPSILON || vector_length_squared(b) <= f64::EPSILON {
+        0.0
+    } else {
+        dot(a, b).clamp(-1.0, 1.0).acos()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -5005,11 +5041,11 @@ mod tests {
             SvgPathSegment::Cubic(test_cubic((10.0, 0.0), (20.0, 0.0))),
             SvgPathSegment::Cubic(CubicSegment {
                 start: (20.0, 0.0),
-                control1: (20.1, 0.0),
-                control2: (20.5, -0.3),
-                end: (20.6, -0.4),
+                control1: (19.9, 0.0),
+                control2: (18.6, -0.9),
+                end: (18.4, -1.2),
             }),
-            SvgPathSegment::Cubic(test_cubic((20.6, -0.4), (30.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((18.4, -1.2), (30.0, 0.0))),
             SvgPathSegment::Cubic(test_cubic((30.0, 0.0), (40.0, 0.0))),
         ];
 
