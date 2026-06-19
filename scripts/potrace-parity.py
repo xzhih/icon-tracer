@@ -52,6 +52,7 @@ ICON_OPTS = (
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
 PATH_RE = re.compile(r"<path\b[^>]*\sd=\"([^\"]*)\"", re.IGNORECASE)
+PATH_TOKEN_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
 
 
 @dataclass(frozen=True)
@@ -296,21 +297,80 @@ def svg_stats(svg: Path) -> dict:
     text = svg.read_text(encoding="utf-8")
     paths = PATH_RE.findall(text)
     commands = []
-    number_count = 0
+    point_count = 0
     d_bytes = 0
     for path_data in paths:
         d_bytes += len(path_data.encode("utf-8"))
         commands.extend(command.upper() for command in COMMAND_RE.findall(path_data))
-        number_count += len(NUMBER_RE.findall(path_data))
+        point_count += svg_path_point_count(path_data)
 
     return {
         "path_count": len(paths),
         "command_count": len(commands),
         "cubic_count": commands.count("C"),
         "line_count": commands.count("L") + commands.count("H") + commands.count("V"),
-        "point_count": number_count // 2,
+        "point_count": point_count,
         "d_bytes": d_bytes,
     }
+
+
+def svg_path_point_count(path_data: str) -> int:
+    tokens = PATH_TOKEN_RE.findall(path_data)
+    index = 0
+    command = ""
+    points = 0
+
+    while index < len(tokens):
+        if COMMAND_RE.fullmatch(tokens[index]):
+            command = tokens[index]
+            index += 1
+
+        upper = command.upper()
+        if upper == "Z":
+            command = ""
+            continue
+        if not command:
+            index += 1
+            continue
+
+        arity, segment_points = svg_command_arity_and_points(upper)
+        if arity == 0:
+            index += 1
+            continue
+
+        first_moveto = upper == "M"
+        while index + arity <= len(tokens) and not COMMAND_RE.fullmatch(tokens[index]):
+            points += segment_points
+            index += arity
+            if first_moveto:
+                command = "l" if command.islower() else "L"
+                upper = "L"
+                arity, segment_points = svg_command_arity_and_points(upper)
+                first_moveto = False
+
+            if index < len(tokens) and COMMAND_RE.fullmatch(tokens[index]):
+                break
+
+        if index < len(tokens) and not COMMAND_RE.fullmatch(tokens[index]):
+            index += 1
+
+    return points
+
+
+def svg_command_arity_and_points(command: str) -> tuple[int, int]:
+    match command:
+        case "H" | "V":
+            return (1, 1)
+        case "M" | "L" | "T":
+            return (2, 1)
+        case "S" | "Q":
+            return (4, 2)
+        case "C":
+            return (6, 3)
+        case "A":
+            return (7, 1)
+        case _:
+            return (0, 0)
 
 
 def assert_size(magick: str, image: Path, width: int, height: int) -> None:

@@ -4571,11 +4571,22 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     let smooth = minify_compact_svg_path_data(
         &compact_smooth_relative_svg_path_data_from_segments(start, segments),
     );
+    let axis_smooth = minify_compact_svg_path_data(
+        &compact_axis_smooth_relative_svg_path_data_from_segments(start, segments),
+    );
 
-    [absolute, relative, smooth]
+    let mut best = [absolute, relative, smooth]
         .into_iter()
         .min_by_key(String::len)
-        .expect("compact path candidates should not be empty")
+        .expect("compact path candidates should not be empty");
+
+    if axis_smooth.len() < best.len()
+        && compact_path_command_count(&axis_smooth) <= compact_path_command_count(&best)
+    {
+        best = axis_smooth;
+    }
+
+    best
 }
 
 fn compact_segments_are_closed(start: (f64, f64), segments: &[SvgPathSegment]) -> bool {
@@ -4633,9 +4644,65 @@ fn compact_path_token_is_command(token: &str) -> bool {
         && token.as_bytes().first().is_some_and(|byte| {
             matches!(
                 byte,
-                b'M' | b'm' | b'Z' | b'z' | b'L' | b'l' | b'C' | b'c' | b'S' | b's'
+                b'M' | b'm'
+                    | b'Z'
+                    | b'z'
+                    | b'L'
+                    | b'l'
+                    | b'H'
+                    | b'h'
+                    | b'V'
+                    | b'v'
+                    | b'C'
+                    | b'c'
+                    | b'S'
+                    | b's'
             )
         })
+}
+
+fn compact_path_command_count(data: &str) -> usize {
+    data.split(|character: char| {
+        !(character.is_ascii_alphabetic()
+            || character.is_ascii_digit()
+            || matches!(character, '-' | '+' | '.'))
+    })
+    .flat_map(str::chars)
+    .filter(|character| {
+        matches!(
+            character,
+            'M' | 'm' | 'Z' | 'z' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'S' | 's'
+        )
+    })
+    .count()
+}
+
+fn compact_relative_line_command(start: (f64, f64), end: (f64, f64)) -> char {
+    if line_axis_delta_is_zero(start.1, end.1) {
+        'h'
+    } else if line_axis_delta_is_zero(start.0, end.0) {
+        'v'
+    } else {
+        'l'
+    }
+}
+
+fn compact_relative_line_coordinates(start: (f64, f64), end: (f64, f64)) -> String {
+    if line_axis_delta_is_zero(start.1, end.1) {
+        format_compact_float(end.0 - start.0)
+    } else if line_axis_delta_is_zero(start.0, end.0) {
+        format_compact_float(end.1 - start.1)
+    } else {
+        format!(
+            "{} {}",
+            format_compact_float(end.0 - start.0),
+            format_compact_float(end.1 - start.1)
+        )
+    }
+}
+
+fn line_axis_delta_is_zero(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1.0e-9
 }
 
 fn compact_absolute_svg_path_data_from_segments(
@@ -4741,6 +4808,21 @@ fn compact_smooth_relative_svg_path_data_from_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
 ) -> String {
+    compact_smooth_relative_svg_path_data_with_line_mode(start, segments, false)
+}
+
+fn compact_axis_smooth_relative_svg_path_data_from_segments(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
+    compact_smooth_relative_svg_path_data_with_line_mode(start, segments, true)
+}
+
+fn compact_smooth_relative_svg_path_data_with_line_mode(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+    use_axis_lines: bool,
+) -> String {
     let mut data = format!(
         "M {} {}",
         format_compact_float(start.0),
@@ -4753,16 +4835,27 @@ fn compact_smooth_relative_svg_path_data_from_segments(
     for segment in segments {
         match segment {
             SvgPathSegment::Line { end, .. } => {
-                if previous_command != Some('l') {
-                    data.push_str(" l");
-                    previous_command = Some('l');
+                let command = if use_axis_lines {
+                    compact_relative_line_command(current, *end)
+                } else {
+                    'l'
+                };
+                if previous_command != Some(command) {
+                    data.push(' ');
+                    data.push(command);
+                    previous_command = Some(command);
                 }
 
-                data.push_str(&format!(
-                    " {} {}",
-                    format_compact_float(end.0 - current.0),
-                    format_compact_float(end.1 - current.1)
-                ));
+                data.push(' ');
+                if use_axis_lines {
+                    data.push_str(&compact_relative_line_coordinates(current, *end));
+                } else {
+                    data.push_str(&format!(
+                        "{} {}",
+                        format_compact_float(end.0 - current.0),
+                        format_compact_float(end.1 - current.1)
+                    ));
+                }
                 current = *end;
                 previous_cubic_control2 = None;
             }
@@ -6351,6 +6444,18 @@ mod tests {
         let data = compact_svg_path_data_from_segments((1.5, 0.25), &segments);
 
         assert_eq!(data, "M1.5.25l1 .5Z");
+    }
+
+    #[test]
+    fn compact_path_data_uses_axis_line_shorthand() {
+        let segments = vec![SvgPathSegment::Line {
+            start: (0.0, 0.0),
+            end: (10.0, 0.0),
+        }];
+
+        let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
+
+        assert_eq!(data, "M0 0h10Z");
     }
 
     #[test]
