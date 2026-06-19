@@ -93,16 +93,16 @@ PARITY_LIMITS = {
         "icon_d_bytes": 179,
     },
     "rounded_rect_r18": {
-        "mask_ae_pixels": 94,
-        "icon_command_count": 19,
-        "icon_svg_point_count": 34,
-        "icon_d_bytes": 181,
+        "mask_ae_pixels": 0,
+        "icon_command_count": 13,
+        "icon_svg_point_count": 33,
+        "icon_d_bytes": 215,
     },
     "rounded_rect_r32": {
-        "mask_ae_pixels": 261,
-        "icon_command_count": 25,
-        "icon_svg_point_count": 52,
-        "icon_d_bytes": 302,
+        "mask_ae_pixels": 0,
+        "icon_command_count": 18,
+        "icon_svg_point_count": 29,
+        "icon_d_bytes": 198,
     },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")

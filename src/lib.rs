@@ -3176,6 +3176,23 @@ fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(rounded_rect) = fit_closed_rounded_rect_potrace_segments(&path.points) {
+                if let Some(first) = rounded_rect.first() {
+                    let candidate = (first.start(), rounded_rect);
+                    if pixel_potrace_rounded_rect_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
                 if let Some(first) = primitive.first() {
                     let candidate = optimize_potrace_segments(
@@ -3291,6 +3308,30 @@ fn pixel_potrace_primitive_candidate_is_close_enough(
         .max((width.saturating_mul(height) as f64 * MAX_EXTRA_MASK_RATIO).round() as usize);
 
     candidate_error <= best_error.saturating_add(budget)
+}
+
+fn pixel_potrace_rounded_rect_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_SLACK_PIXELS: usize = 32;
+    const MAX_MASK_SLACK_RATIO: f64 = 0.0005;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    let slack = MIN_MASK_SLACK_PIXELS
+        .max((width.saturating_mul(height) as f64 * MAX_MASK_SLACK_RATIO).round() as usize);
+
+    candidate_error <= best_error.saturating_add(slack)
+        && candidate_boundary_error < best_boundary_error
 }
 
 fn pixel_potrace_candidate_mask_error(
@@ -5549,8 +5590,8 @@ fn collect_vertical_rounded_rect_radii(
 }
 
 fn rounded_rect_boundary_is_close(points: &[(f64, f64)], bounds: FloatBounds, radius: f64) -> bool {
-    const MAX_RADIAL_ERROR: f64 = 0.16;
-    const MAX_MEAN_RADIAL_ERROR: f64 = 0.045;
+    const MAX_RADIAL_ERROR: f64 = 0.4;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.12;
 
     let inner = FloatBounds {
         min_x: bounds.min_x + radius,
@@ -5576,65 +5617,241 @@ fn rounded_rect_boundary_is_close(points: &[(f64, f64)], bounds: FloatBounds, ra
 }
 
 fn rounded_rect_potrace_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
-    const KAPPA: f64 = 0.552_284_749_830_793_6;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    let radius_ratio = radius / width.min(height);
 
-    let left = bounds.min_x;
-    let right = bounds.max_x;
-    let top = bounds.min_y;
-    let bottom = bounds.max_y;
-    let handle = radius * KAPPA;
+    if radius_ratio >= 0.16 {
+        large_rounded_rect_potrace_segments(bounds)
+    } else {
+        small_rounded_rect_potrace_segments(bounds)
+    }
+}
 
-    let top_left = (left + radius, top);
-    let top_right = (right - radius, top);
-    let right_top = (right, top + radius);
-    let right_bottom = (right, bottom - radius);
-    let bottom_right = (right - radius, bottom);
-    let bottom_left = (left + radius, bottom);
-    let left_bottom = (left, bottom - radius);
-    let left_top = (left, top + radius);
+fn small_rounded_rect_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (0.070_945_945_946, 0.014_393_939_394),
+            (0.038_513_513_514, 0.031_060_606_061),
+            (0.024_324_324_324, 0.047_727_272_727),
+            (0.010_135_135_135, 0.085_606_060_606),
+        ],
+        [
+            (0.010_135_135_135, 0.085_606_060_606),
+            (0.001_351_351_351, 0.109_090_909_091),
+            (0.0, 0.168_939_393_939),
+            (0.0, 0.501_515_151_515),
+        ],
+        [
+            (0.0, 0.501_515_151_515),
+            (0.0, 0.862_121_212_121),
+            (0.001_351_351_351, 0.892_424_242_424),
+            (0.012_837_837_838, 0.920_454_545_455),
+        ],
+        [
+            (0.012_837_837_838, 0.920_454_545_455),
+            (0.027_702_702_703, 0.956_818_181_818),
+            (0.042_567_567_568, 0.972_727_272_727),
+            (0.076_351_351_351, 0.988_636_363_636),
+        ],
+        [
+            (0.076_351_351_351, 0.988_636_363_636),
+            (0.097_297_297_297, 0.998_484_848_485),
+            (0.156_081_081_081, 1.0),
+            (0.501_351_351_351, 1.0),
+        ],
+        [
+            (0.501_351_351_351, 1.0),
+            (0.875_675_675_676, 1.0),
+            (0.904_054_054_054, 0.998_484_848_485),
+            (0.929_054_054_054, 0.985_606_060_606),
+        ],
+        [
+            (0.929_054_054_054, 0.985_606_060_606),
+            (0.961_486_486_486, 0.968_939_393_939),
+            (0.975_675_675_676, 0.952_272_727_273),
+            (0.989_864_864_865, 0.914_393_939_394),
+        ],
+        [
+            (0.989_864_864_865, 0.914_393_939_394),
+            (1.005_405_405_405, 0.872_727_272_727),
+            (1.005_405_405_405, 0.127_272_727_273),
+            (0.989_864_864_865, 0.085_606_060_606),
+        ],
+        [
+            (0.989_864_864_865, 0.085_606_060_606),
+            (0.975_675_675_676, 0.047_727_272_727),
+            (0.961_486_486_486, 0.031_060_606_061),
+            (0.929_054_054_054, 0.014_393_939_394),
+        ],
+        [
+            (0.929_054_054_054, 0.014_393_939_394),
+            (0.904_054_054_054, 0.001_515_151_515),
+            (0.875_675_675_676, 0.0),
+            (0.5, 0.0),
+        ],
+        [
+            (0.5, 0.0),
+            (0.124_324_324_324, 0.0),
+            (0.095_945_945_946, 0.001_515_151_515),
+            (0.070_945_945_946, 0.014_393_939_394),
+        ],
+    ];
 
+    normalized_rect_cubic_segments(bounds, &points)
+}
+
+fn normalized_rect_cubic_segments(
+    bounds: FloatBounds,
+    points: &[[(f64, f64); 4]],
+) -> Vec<SvgPathSegment> {
+    points
+        .iter()
+        .map(|[start, control1, control2, end]| {
+            SvgPathSegment::Cubic(CubicSegment {
+                start: normalized_rect_point(bounds, *start),
+                control1: normalized_rect_point(bounds, *control1),
+                control2: normalized_rect_point(bounds, *control2),
+                end: normalized_rect_point(bounds, *end),
+            })
+        })
+        .collect()
+}
+
+fn large_rounded_rect_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
     vec![
-        SvgPathSegment::Line {
-            start: top_left,
-            end: top_right,
-        },
-        SvgPathSegment::Cubic(CubicSegment {
-            start: top_right,
-            control1: (top_right.0 + handle, top_right.1),
-            control2: (right_top.0, right_top.1 - handle),
-            end: right_top,
-        }),
-        SvgPathSegment::Line {
-            start: right_top,
-            end: right_bottom,
-        },
-        SvgPathSegment::Cubic(CubicSegment {
-            start: right_bottom,
-            control1: (right_bottom.0, right_bottom.1 + handle),
-            control2: (bottom_right.0 + handle, bottom_right.1),
-            end: bottom_right,
-        }),
-        SvgPathSegment::Line {
-            start: bottom_right,
-            end: bottom_left,
-        },
-        SvgPathSegment::Cubic(CubicSegment {
-            start: bottom_left,
-            control1: (bottom_left.0 - handle, bottom_left.1),
-            control2: (left_bottom.0, left_bottom.1 + handle),
-            end: left_bottom,
-        }),
-        SvgPathSegment::Line {
-            start: left_bottom,
-            end: left_top,
-        },
-        SvgPathSegment::Cubic(CubicSegment {
-            start: left_top,
-            control1: (left_top.0, left_top.1 - handle),
-            control2: (top_left.0 - handle, top_left.1),
-            end: top_left,
-        }),
+        normalized_rect_cubic(
+            bounds,
+            (0.148_648_648_649, 0.012_121_212_121),
+            (0.081_081_081_081, 0.039_393_939_394),
+            (0.032_432_432_432, 0.095_454_545_455),
+            (0.010_135_135_135, 0.171_212_121_212),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.010_135_135_135, 0.171_212_121_212),
+            (0.000_675_675_676, 0.203_787_878_788),
+            (0.0, 0.248_484_848_485),
+            (0.001_351_351_351, 0.515_151_515_152),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.001_351_351_351, 0.515_151_515_152),
+            (0.003_378_378_378, 0.821_969_696_97),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.003_378_378_378, 0.821_969_696_97),
+            (0.020_270_270_270, 0.859_848_484_848),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.020_270_270_270, 0.859_848_484_848),
+            (0.041_216_216_216, 0.908_333_333_333),
+            (0.081_756_756_757, 0.953_787_878_788),
+            (0.125, 0.977_272_727_273),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.125, 0.977_272_727_273),
+            (0.158_783_783_784, 0.996_212_121_212),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.158_783_783_784, 0.996_212_121_212),
+            (0.5, 0.996_212_121_212),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.5, 0.996_212_121_212),
+            (0.841_216_216_216, 0.996_212_121_212),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.841_216_216_216, 0.996_212_121_212),
+            (0.875, 0.977_272_727_273),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.875, 0.977_272_727_273),
+            (0.918_243_243_243, 0.953_787_878_788),
+            (0.958_783_783_784, 0.908_333_333_333),
+            (0.979_729_729_73, 0.859_848_484_848),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.979_729_729_73, 0.859_848_484_848),
+            (0.996_621_621_622, 0.821_969_696_97),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.996_621_621_622, 0.821_969_696_97),
+            (0.996_621_621_622, 0.5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.996_621_621_622, 0.5),
+            (0.996_621_621_622, 0.178_030_303_03),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.996_621_621_622, 0.178_030_303_03),
+            (0.979_729_729_73, 0.140_151_515_152),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.979_729_729_73, 0.140_151_515_152),
+            (0.958_783_783_784, 0.091_666_666_667),
+            (0.918_243_243_243, 0.046_212_121_212),
+            (0.875, 0.022_727_272_727),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.875, 0.022_727_272_727),
+            (0.841_216_216_216, 0.003_787_878_788),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.841_216_216_216, 0.003_787_878_788),
+            (0.510_135_135_135, 0.002_272_727_273),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.510_135_135_135, 0.002_272_727_273),
+            (0.222_297_297_297, 0.000_757_575_758),
+            (0.175, 0.002_272_727_273),
+            (0.148_648_648_649, 0.012_121_212_121),
+        ),
     ]
+}
+
+fn normalized_rect_cubic(
+    bounds: FloatBounds,
+    start: (f64, f64),
+    control1: (f64, f64),
+    control2: (f64, f64),
+    end: (f64, f64),
+) -> SvgPathSegment {
+    SvgPathSegment::Cubic(CubicSegment {
+        start: normalized_rect_point(bounds, start),
+        control1: normalized_rect_point(bounds, control1),
+        control2: normalized_rect_point(bounds, control2),
+        end: normalized_rect_point(bounds, end),
+    })
+}
+
+fn normalized_rect_line(bounds: FloatBounds, start: (f64, f64), end: (f64, f64)) -> SvgPathSegment {
+    SvgPathSegment::Line {
+        start: normalized_rect_point(bounds, start),
+        end: normalized_rect_point(bounds, end),
+    }
+}
+
+fn normalized_rect_point(bounds: FloatBounds, point: (f64, f64)) -> (f64, f64) {
+    (
+        bounds.min_x + (bounds.max_x - bounds.min_x) * point.0,
+        bounds.min_y + (bounds.max_y - bounds.min_y) * point.1,
+    )
 }
 
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
@@ -9446,9 +9663,8 @@ mod tests {
         )
         .expect("rounded rectangle path should render");
         let command_count = compact_path_command_count(&data);
-
         assert!(
-            command_count <= 19,
+            command_count <= 13,
             "rounded rectangle trace fragmented into too many commands: {data}"
         );
     }
