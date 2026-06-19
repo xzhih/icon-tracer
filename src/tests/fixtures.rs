@@ -224,6 +224,28 @@ pub(super) fn parity_plus_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+pub(super) fn parity_l_shape_bitmap() -> Bitmap {
+    const CANVAS: usize = 256;
+    let rects = [
+        (58.0, 52.0, 102.0, 204.0, 18.0),
+        (58.0, 160.0, 198.0, 204.0, 18.0),
+    ];
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                let point = (x as f64 + 0.5, y as f64 + 0.5);
+                rects.iter().any(|(left, top, right, bottom, radius)| {
+                    let nearest_x = point.0.clamp(left + radius, right - radius);
+                    let nearest_y = point.1.clamp(top + radius, bottom - radius);
+                    (point.0 - nearest_x).powi(2) + (point.1 - nearest_y).powi(2) <= radius * radius
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 pub(super) fn parity_chevron_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let left = (70.0, 70.0);

@@ -272,6 +272,30 @@ fn pixel_plus_shape_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_l_shape_uses_potrace_template() {
+    let bitmap = parity_l_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1020 960v468"), "{svg}");
+    assert!(svg.contains("21 10 50 27 57 37"), "{svg}");
+    assert!(svg.contains("-52 46-70 48-499 48Z"), "{svg}");
+}
+
+#[test]
 fn pixel_diagonal_capsule_primitive_uses_potrace_like_cubics() {
     let bitmap = parity_diagonal_bar_bitmap();
     let traced = trace_bitmap(

@@ -98,6 +98,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 46,
         "icon_d_bytes": 303,
     },
+    "l_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 15,
+        "icon_svg_point_count": 38,
+        "icon_d_bytes": 240,
+    },
     "diagonal_bar": {
         "mask_ae_pixels": 0,
         "icon_command_count": 10,
@@ -216,6 +222,7 @@ def fixtures() -> list[Fixture]:
         Fixture("roundbar", shape_roundbar()),
         Fixture("double_pill", shape_double_pill()),
         Fixture("plus_shape", shape_plus()),
+        Fixture("l_shape", shape_l()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
         Fixture("angled_v", shape_angled_v()),
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
@@ -298,6 +305,15 @@ def shape_plus() -> list[bool]:
         [
             (106.0, 48.0, 150.0, 208.0, 18.0),
             (48.0, 106.0, 208.0, 150.0, 18.0),
+        ]
+    )
+
+
+def shape_l() -> list[bool]:
+    return rounded_rect_union(
+        [
+            (58.0, 52.0, 102.0, 204.0, 18.0),
+            (58.0, 160.0, 198.0, 204.0, 18.0),
         ]
     )
 
