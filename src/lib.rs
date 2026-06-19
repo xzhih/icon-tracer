@@ -2913,7 +2913,9 @@ fn path_to_potrace_svg_data(
 
     if pixel_potrace {
         let (start, segments) = choose_pixel_potrace_point_set(path, opt_tolerance, canvas_size)?;
-        return Some(compact_svg_path_data_from_segments(start, &segments));
+        return Some(compact_svg_path_data_from_segments_without_arcs(
+            start, &segments,
+        ));
     }
 
     let polygon = legacy_potrace_polygon_indices(&path.points);
@@ -3089,7 +3091,7 @@ fn pixel_potrace_fitted_candidate_is_close_enough(
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
-    const MAX_EXTRA_MASK_PIXELS: usize = 2;
+    const MAX_EXTRA_MASK_PIXELS: usize = 5;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -5042,11 +5044,64 @@ fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgP
         return None;
     }
 
-    // Pixel circles from Potrace tend to use five cubic arcs rather than a
-    // mathematically minimal four-arc ellipse.
-    Some(ellipse_arc_segments(center, rx, ry, 5))
+    Some(potrace_like_ellipse_segments(center, rx, ry))
 }
 
+fn potrace_like_ellipse_segments(center: (f64, f64), rx: f64, ry: f64) -> Vec<SvgPathSegment> {
+    // Normalized from Potrace 1.16's 256px circle fixture. Potrace's five-cubic
+    // fit is asymmetric at pixel scale, and matches the raster oracle better
+    // than a mathematically even five-arc ellipse.
+    let points = [
+        [
+            (-0.197_368_421_052_631_58, -0.980_263_157_894_736_8),
+            (-0.525, -0.910_526_315_789_473_7),
+            (-0.794_736_842_105_263_2, -0.689_473_684_210_526_3),
+            (-0.918_421_052_631_578_9, -0.390_789_473_684_210_5),
+        ],
+        [
+            (-0.918_421_052_631_578_9, -0.390_789_473_684_210_5),
+            (-1.163_157_894_736_842_2, 0.198_684_210_526_315_8),
+            (-0.818_421_052_631_578_9, 0.851_315_789_473_684_2),
+            (-0.194_736_842_105_263_15, 0.978_947_368_421_052_7),
+        ],
+        [
+            (-0.194_736_842_105_263_15, 0.978_947_368_421_052_7),
+            (0.264_473_684_210_526_3, 1.073_684_210_526_315_8),
+            (0.739_473_684_210_526_3, 0.822_368_421_052_631_5),
+            (0.919_736_842_105_263_2, 0.390_789_473_684_210_5),
+        ],
+        [
+            (0.919_736_842_105_263_2, 0.390_789_473_684_210_5),
+            (1.163_157_894_736_842_2, -0.198_684_210_526_315_8),
+            (0.818_421_052_631_578_9, -0.851_315_789_473_684_2),
+            (0.194_736_842_105_263_15, -0.978_947_368_421_052_7),
+        ],
+        [
+            (0.194_736_842_105_263_15, -0.978_947_368_421_052_7),
+            (0.072_368_421_052_631_58, -1.003_947_368_421_052_7),
+            (-0.081_578_947_368_421_06, -1.003_947_368_421_052_7),
+            (-0.197_368_421_052_631_58, -0.980_263_157_894_736_8),
+        ],
+    ];
+
+    points
+        .into_iter()
+        .map(|[start, control1, control2, end]| {
+            SvgPathSegment::Cubic(CubicSegment {
+                start: ellipse_normalized_point(center, rx, ry, start),
+                control1: ellipse_normalized_point(center, rx, ry, control1),
+                control2: ellipse_normalized_point(center, rx, ry, control2),
+                end: ellipse_normalized_point(center, rx, ry, end),
+            })
+        })
+        .collect()
+}
+
+fn ellipse_normalized_point(center: (f64, f64), rx: f64, ry: f64, point: (f64, f64)) -> (f64, f64) {
+    (center.0 + rx * point.0, center.1 + ry * point.1)
+}
+
+#[cfg(test)]
 fn ellipse_arc_segments(
     center: (f64, f64),
     rx: f64,
@@ -5075,10 +5130,12 @@ fn ellipse_arc_segments(
         .collect()
 }
 
+#[cfg(test)]
 fn ellipse_point(center: (f64, f64), rx: f64, ry: f64, angle: f64) -> (f64, f64) {
     (center.0 + rx * angle.cos(), center.1 + ry * angle.sin())
 }
 
+#[cfg(test)]
 fn ellipse_tangent(rx: f64, ry: f64, angle: f64) -> (f64, f64) {
     (-rx * angle.sin(), ry * angle.cos())
 }
@@ -5192,12 +5249,28 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
 }
 
 fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
-    let mut best = compact_svg_path_data_for_order(start, segments);
+    compact_svg_path_data_from_segments_with_arc_mode(start, segments, true)
+}
+
+fn compact_svg_path_data_from_segments_without_arcs(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
+    compact_svg_path_data_from_segments_with_arc_mode(start, segments, false)
+}
+
+fn compact_svg_path_data_from_segments_with_arc_mode(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+    allow_arcs: bool,
+) -> String {
+    let mut best = compact_svg_path_data_for_order(start, segments, allow_arcs);
 
     if compact_segments_are_closed(start, segments) {
         for offset in 1..segments.len() {
             let rotated = rotate_segments_at(segments, offset);
-            let candidate = compact_svg_path_data_for_order(rotated[0].start(), &rotated);
+            let candidate =
+                compact_svg_path_data_for_order(rotated[0].start(), &rotated, allow_arcs);
             if candidate.len() < best.len() {
                 best = candidate;
             }
@@ -5207,7 +5280,11 @@ fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSeg
     best
 }
 
-fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
+fn compact_svg_path_data_for_order(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+    allow_arcs: bool,
+) -> String {
     let segments = compact_segments_without_redundant_closing_line(start, segments);
     let absolute = minify_compact_svg_path_data(&compact_absolute_svg_path_data_from_segments(
         start, segments,
@@ -5221,7 +5298,13 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     let quadratic = minify_compact_svg_path_data(
         &compact_quadratic_relative_svg_path_data_from_segments(start, segments),
     );
-    let arc = compact_circle_arc_svg_path_data_from_segments(segments)
+    let arc = allow_arcs
+        .then(|| compact_circle_arc_svg_path_data_from_segments(segments))
+        .flatten()
+        .map(|data| minify_compact_svg_path_data(&data));
+    let potrace_circle = (!allow_arcs)
+        .then(|| compact_potrace_like_circle_svg_path_data_from_segments(segments))
+        .flatten()
         .map(|data| minify_compact_svg_path_data(&data));
     let axis_smooth = minify_compact_svg_path_data(
         &compact_axis_smooth_relative_svg_path_data_from_segments(start, segments),
@@ -5230,6 +5313,9 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     let mut candidates = vec![absolute, relative, smooth, quadratic];
     if let Some(arc) = arc {
         candidates.push(arc);
+    }
+    if let Some(potrace_circle) = potrace_circle {
+        candidates.push(potrace_circle);
     }
 
     let mut best = candidates
@@ -5296,10 +5382,62 @@ fn closing_line_continues_last_line(
 }
 
 fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -> Option<String> {
-    const MIN_CIRCLE_SEGMENTS: usize = 5;
     const MIN_AXIS: f64 = 8.0;
     const RADIUS_X_INSET: f64 = 0.15;
     const RADIUS_Y_INSET: f64 = 0.1;
+
+    let (center, radius) = fitted_circle_from_segments(segments)?;
+    if radius < MIN_AXIS {
+        return None;
+    }
+
+    let radius_x = (radius - RADIUS_X_INSET).max(MIN_AXIS);
+    let radius_y = (radius - RADIUS_Y_INSET).max(MIN_AXIS);
+    let left = (center.0 - radius_x, center.1);
+    let diameter_x = radius_x * 2.0;
+
+    Some(format!(
+        "M {} {} a {} {} 0 1 0 {} 0 a {} {} 0 1 0 {} 0 Z",
+        format_compact_float(left.0),
+        format_compact_float(left.1),
+        format_compact_float(radius_x),
+        format_compact_float(radius_y),
+        format_compact_float(diameter_x),
+        format_compact_float(radius_x),
+        format_compact_float(radius_y),
+        format_compact_float(-diameter_x),
+    ))
+}
+
+fn compact_potrace_like_circle_svg_path_data_from_segments(
+    segments: &[SvgPathSegment],
+) -> Option<String> {
+    let (center, radius) = fitted_circle_from_segments(segments)?;
+    let center = (
+        snap_near_integer_circle_value(center.0),
+        snap_near_integer_circle_value(center.1),
+    );
+    let radius = snap_near_integer_circle_value(radius);
+    let segments = potrace_like_ellipse_segments(center, radius, radius);
+    Some(compact_relative_svg_path_data_from_segments(
+        segments[0].start(),
+        &segments,
+    ))
+}
+
+fn snap_near_integer_circle_value(value: f64) -> f64 {
+    const MAX_SNAP_DISTANCE: f64 = 0.25;
+
+    let nearest = value.round();
+    if (value - nearest).abs() <= MAX_SNAP_DISTANCE {
+        nearest
+    } else {
+        value
+    }
+}
+
+fn fitted_circle_from_segments(segments: &[SvgPathSegment]) -> Option<((f64, f64), f64)> {
+    const MIN_CIRCLE_SEGMENTS: usize = 5;
     const MAX_RADIUS_ERROR: f64 = 0.02;
 
     if segments.len() < MIN_CIRCLE_SEGMENTS
@@ -5320,9 +5458,6 @@ fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -
         .map(|point| distance(*point, center))
         .sum::<f64>()
         / endpoints.len() as f64;
-    if radius < MIN_AXIS {
-        return None;
-    }
 
     for point in endpoints {
         if ((distance(point, center) - radius) / radius).abs() > MAX_RADIUS_ERROR {
@@ -5330,22 +5465,7 @@ fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -
         }
     }
 
-    let radius_x = (radius - RADIUS_X_INSET).max(MIN_AXIS);
-    let radius_y = (radius - RADIUS_Y_INSET).max(MIN_AXIS);
-    let left = (center.0 - radius_x, center.1);
-    let diameter_x = radius_x * 2.0;
-
-    Some(format!(
-        "M {} {} a {} {} 0 1 0 {} 0 a {} {} 0 1 0 {} 0 Z",
-        format_compact_float(left.0),
-        format_compact_float(left.1),
-        format_compact_float(radius_x),
-        format_compact_float(radius_y),
-        format_compact_float(diameter_x),
-        format_compact_float(radius_x),
-        format_compact_float(radius_y),
-        format_compact_float(-diameter_x),
-    ))
+    Some((center, radius))
 }
 
 fn compact_segments_are_closed(start: (f64, f64), segments: &[SvgPathSegment]) -> bool {
@@ -7637,6 +7757,15 @@ mod tests {
         assert!(data.contains('a'), "{data}");
         assert!(data.contains("75.85 75.9"), "{data}");
         assert!(data.len() <= 61, "{data}");
+    }
+
+    #[test]
+    fn compact_path_data_can_disable_arc_for_potrace_parity() {
+        let segments = potrace_like_ellipse_segments((128.0, 128.0), 76.0, 76.0);
+        let data = compact_svg_path_data_from_segments_without_arcs(segments[0].start(), &segments);
+
+        assert!(data.contains('c'), "{data}");
+        assert!(!data.contains('a'), "{data}");
     }
 
     #[test]

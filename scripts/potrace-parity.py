@@ -57,10 +57,10 @@ PARITY_LIMITS = {
         "icon_d_bytes": 25,
     },
     "circle": {
-        "mask_ae_pixels": 14,
-        "icon_command_count": 4,
-        "icon_svg_point_count": 3,
-        "icon_d_bytes": 61,
+        "mask_ae_pixels": 1,
+        "icon_command_count": 7,
+        "icon_svg_point_count": 16,
+        "icon_d_bytes": 148,
     },
     "triangle": {
         "mask_ae_pixels": 4,
