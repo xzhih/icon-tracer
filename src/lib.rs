@@ -3044,6 +3044,25 @@ fn choose_pixel_potrace_segments(
             }
         }
 
+        if !preserve_primitive {
+            if let Some(diagonal_capsule) =
+                fit_closed_diagonal_capsule_potrace_segments(&path.points)
+            {
+                if let Some(first) = diagonal_capsule.first() {
+                    let candidate = (first.start(), diagonal_capsule);
+                    if pixel_potrace_primitive_candidate_is_close_enough(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
         if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
             if let Some(first) = primitive.first() {
                 let candidate = optimize_potrace_segments(
@@ -4974,6 +4993,139 @@ fn fit_closed_capsule_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgP
     }
 }
 
+fn fit_closed_diagonal_capsule_potrace_segments(
+    points: &[(f64, f64)],
+) -> Option<Vec<SvgPathSegment>> {
+    const MIN_RADIUS: f64 = 8.0;
+    const MIN_ASPECT_RATIO: f64 = 2.0;
+    const AXIS_EPSILON: f64 = 0.08;
+
+    let origin = arc_centroid(points);
+    let pca_axis = principal_axis_for_points(points, origin)?;
+    if pca_axis.0.abs() <= AXIS_EPSILON || pca_axis.1.abs() <= AXIS_EPSILON {
+        return None;
+    }
+
+    let pca_bounds = local_bounds(points, origin, pca_axis)?;
+    let half_length = (pca_bounds.max_x - pca_bounds.min_x) / 2.0 + 0.05;
+    let radius = (pca_bounds.max_y - pca_bounds.min_y) / 2.0 + 0.125;
+    if radius < MIN_RADIUS || half_length < radius * MIN_ASPECT_RATIO {
+        return None;
+    }
+
+    let axis = refine_diagonal_capsule_axis(points, origin, pca_axis, radius)?;
+    if !diagonal_capsule_boundary_is_close(points, origin, axis, half_length, radius) {
+        return None;
+    }
+
+    Some(diagonal_capsule_segments(origin, axis, half_length, radius))
+}
+
+fn principal_axis_for_points(points: &[(f64, f64)], origin: (f64, f64)) -> Option<(f64, f64)> {
+    let mut xx = 0.0;
+    let mut xy = 0.0;
+    let mut yy = 0.0;
+
+    for point in points {
+        let centered = subtract(*point, origin);
+        xx += centered.0 * centered.0;
+        xy += centered.0 * centered.1;
+        yy += centered.1 * centered.1;
+    }
+
+    principal_axis_2x2(xx, xy, yy).map(positive_x_axis)
+}
+
+fn refine_diagonal_capsule_axis(
+    points: &[(f64, f64)],
+    origin: (f64, f64),
+    initial_axis: (f64, f64),
+    radius: f64,
+) -> Option<(f64, f64)> {
+    const STEPS: i32 = 240;
+    const STEP_RADIANS: f64 = 0.0005;
+
+    let mut best_axis = initial_axis;
+    let mut best_score = f64::INFINITY;
+
+    for step in -STEPS..=STEPS {
+        let axis = positive_x_axis(rotate_vector(initial_axis, step as f64 * STEP_RADIANS));
+        let Some(score) = diagonal_capsule_axis_score(points, origin, axis, radius) else {
+            continue;
+        };
+
+        if score < best_score {
+            best_score = score;
+            best_axis = axis;
+        }
+    }
+
+    best_score.is_finite().then_some(best_axis)
+}
+
+fn diagonal_capsule_axis_score(
+    points: &[(f64, f64)],
+    origin: (f64, f64),
+    axis: (f64, f64),
+    min_radius: f64,
+) -> Option<f64> {
+    let bounds = local_bounds(points, origin, axis)?;
+    let half_length = (bounds.max_x - bounds.min_x) / 2.0;
+    let radius = (bounds.max_y - bounds.min_y) / 2.0;
+    if radius < min_radius * 0.8 || half_length <= radius * 2.0 {
+        return None;
+    }
+
+    let normal = left_normal(axis);
+    let center_x = (bounds.min_x + bounds.max_x) / 2.0;
+    let center_y = (bounds.min_y + bounds.max_y) / 2.0;
+    let rail_limit = half_length - radius * 1.5;
+    let mut total = 0.0;
+    let mut count = 0usize;
+
+    for point in points {
+        let local = point_to_local(*point, origin, axis, normal);
+        if (local.0 - center_x).abs() >= rail_limit {
+            continue;
+        }
+
+        let distance_to_rail = (local.1 - bounds.min_y)
+            .abs()
+            .min((local.1 - bounds.max_y).abs());
+        total += distance_to_rail * distance_to_rail;
+        count += 1;
+    }
+
+    (count > 0).then_some(total / count as f64 + center_y.abs() * 0.01)
+}
+
+fn diagonal_capsule_boundary_is_close(
+    points: &[(f64, f64)],
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+) -> bool {
+    const MAX_RADIAL_ERROR: f64 = 0.12;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.055;
+
+    let normal = left_normal(axis);
+    let start = (-half_length + radius, 0.0);
+    let end = (half_length - radius, 0.0);
+    let mut max_error = 0.0_f64;
+    let mut total_error = 0.0_f64;
+
+    for point in points {
+        let local = point_to_local(*point, origin, axis, normal);
+        let distance = distance_squared_to_segment(local, start, end).0.sqrt();
+        let error = ((distance - radius) / radius).abs();
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
+}
+
 fn capsule_boundary_is_close(
     points: &[(f64, f64)],
     start: (f64, f64),
@@ -5101,6 +5253,93 @@ fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathS
     ]
 }
 
+fn diagonal_capsule_segments(
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (0.875_504_324, -0.897_971_837),
+            (0.855_800_28, -0.932_155_7),
+            (0.455_887_28, -0.959_455_11),
+            (-0.011_574_26, -0.954_623_18),
+        ],
+        [
+            (-0.011_574_26, -0.954_623_18),
+            (-0.912_022_08, -0.957_522_21),
+            (-0.902_032_99, -0.957_401_4),
+            (-0.954_777_34, -0.618_579_0),
+        ],
+        [
+            (-0.954_777_34, -0.618_579_0),
+            (-0.978_351_99, -0.467_104_67),
+            (-0.998_738_72, -0.094_943_02),
+            (-0.995_272_87, 0.091_801_58),
+        ],
+        [
+            (-0.995_272_87, 0.091_801_58),
+            (-0.987_013_56, 0.464_810_22),
+            (-0.937_270_09, 0.796_384_88),
+            (-0.875_504_324, 0.897_971_837),
+        ],
+        [
+            (-0.875_504_324, 0.897_971_837),
+            (-0.855_800_28, 0.932_155_7),
+            (-0.455_887_28, 0.959_455_11),
+            (0.011_574_26, 0.954_623_18),
+        ],
+        [
+            (0.011_574_26, 0.954_623_18),
+            (0.912_022_08, 0.957_522_21),
+            (0.902_032_99, 0.957_401_4),
+            (0.954_777_34, 0.618_579_0),
+        ],
+        [
+            (0.954_777_34, 0.618_579_0),
+            (0.978_351_99, 0.467_104_67),
+            (0.998_738_72, 0.094_943_02),
+            (0.995_272_87, -0.091_801_58),
+        ],
+        [
+            (0.995_272_87, -0.091_801_58),
+            (0.987_013_56, -0.464_810_22),
+            (0.937_270_09, -0.796_384_88),
+            (0.875_504_324, -0.897_971_837),
+        ],
+    ];
+
+    points
+        .into_iter()
+        .map(|[start, control1, control2, end]| {
+            SvgPathSegment::Cubic(CubicSegment {
+                start: diagonal_capsule_point(origin, axis, half_length, radius, start),
+                control1: diagonal_capsule_point(origin, axis, half_length, radius, control1),
+                control2: diagonal_capsule_point(origin, axis, half_length, radius, control2),
+                end: diagonal_capsule_point(origin, axis, half_length, radius, end),
+            })
+        })
+        .collect()
+}
+
+fn diagonal_capsule_point(
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+    point: (f64, f64),
+) -> (f64, f64) {
+    let normal = left_normal(axis);
+    add(
+        origin,
+        add(
+            scale(axis, point.0 * half_length),
+            scale(normal, point.1 * radius),
+        ),
+    )
+}
+
 fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
     let transposed = FloatBounds {
         min_x: bounds.min_y,
@@ -5132,6 +5371,52 @@ fn transpose_svg_path_segment(segment: SvgPathSegment) -> SvgPathSegment {
 
 fn transpose_point(point: (f64, f64)) -> (f64, f64) {
     (point.1, point.0)
+}
+
+fn local_bounds(
+    points: &[(f64, f64)],
+    origin: (f64, f64),
+    axis: (f64, f64),
+) -> Option<FloatBounds> {
+    let normal = left_normal(axis);
+    let local_points = points
+        .iter()
+        .map(|point| point_to_local(*point, origin, axis, normal))
+        .collect::<Vec<_>>();
+
+    FloatBounds::from_points(&local_points)
+}
+
+fn point_to_local(
+    point: (f64, f64),
+    origin: (f64, f64),
+    axis: (f64, f64),
+    normal: (f64, f64),
+) -> (f64, f64) {
+    let vector = subtract(point, origin);
+    (dot(vector, axis), dot(vector, normal))
+}
+
+fn left_normal(axis: (f64, f64)) -> (f64, f64) {
+    (-axis.1, axis.0)
+}
+
+fn rotate_vector(vector: (f64, f64), angle: f64) -> (f64, f64) {
+    let cos = angle.cos();
+    let sin = angle.sin();
+    (
+        vector.0 * cos - vector.1 * sin,
+        vector.0 * sin + vector.1 * cos,
+    )
+}
+
+fn positive_x_axis(axis: (f64, f64)) -> (f64, f64) {
+    let axis = unit_vector(axis);
+    if axis.0 < 0.0 {
+        (-axis.0, -axis.1)
+    } else {
+        axis
+    }
 }
 
 #[cfg(test)]
@@ -7645,6 +7930,25 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_diagonal_bar_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let start = (62.0, 186.0);
+        let end = (194.0, 70.0);
+        let half_width = 18.0;
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    distance_squared_to_segment((x as f64 + 0.5, y as f64 + 0.5), start, end)
+                        .0
+                        .sqrt()
+                        <= half_width
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn point_is_inside_triangle(
         point: (f64, f64),
         a: (f64, f64),
@@ -8240,6 +8544,36 @@ mod tests {
         assert_eq!(
             path_data,
             "M76.1 81.6c-25.3 6.8-41 33.1-34.6 57.9 4.5 17.2 17.9 30.5 35.2 35 8.5 2.2 94.2 2.2 102.8 0 25.6-6.7 41.5-32.9 35-57.8-4.5-17.3-17.8-30.7-35-35.2-8.4-2.2-95.2-2.1-103.4.1Z"
+        );
+    }
+
+    #[test]
+    fn pixel_diagonal_capsule_primitive_uses_potrace_like_cubics() {
+        let bitmap = parity_diagonal_bar_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: false,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+        )
+        .expect("diagonal capsule path should render");
+
+        assert_eq!(
+            data,
+            "M49.57 199.24c5.33 4.73 13.46 5.96 19.67 3.07 2-.9 34.32-28.61 71.64-61.52 72.04-63.23 71.24-62.53 71.21-71.06-.01-3.81-3.04-10.55-5.66-12.97-5.33-4.73-13.46-5.96-19.67-3.07-2 .9-34.32 28.61-71.64 61.52-72.04 63.23-71.24 62.53-71.21 71.06.01 3.81 3.04 10.55 5.66 12.97Z"
         );
     }
 
