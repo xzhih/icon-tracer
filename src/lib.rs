@@ -4979,11 +4979,14 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     let smooth = minify_compact_svg_path_data(
         &compact_smooth_relative_svg_path_data_from_segments(start, segments),
     );
+    let quadratic = minify_compact_svg_path_data(
+        &compact_quadratic_relative_svg_path_data_from_segments(start, segments),
+    );
     let axis_smooth = minify_compact_svg_path_data(
         &compact_axis_smooth_relative_svg_path_data_from_segments(start, segments),
     );
 
-    let mut best = [absolute, relative, smooth]
+    let mut best = [absolute, relative, smooth, quadratic]
         .into_iter()
         .min_by_key(String::len)
         .expect("compact path candidates should not be empty");
@@ -5174,6 +5177,8 @@ fn compact_path_token_is_command(token: &str) -> bool {
                     | b'v'
                     | b'C'
                     | b'c'
+                    | b'Q'
+                    | b'q'
                     | b'S'
                     | b's'
             )
@@ -5190,7 +5195,21 @@ fn compact_path_command_count(data: &str) -> usize {
     .filter(|character| {
         matches!(
             character,
-            'M' | 'm' | 'Z' | 'z' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'S' | 's'
+            'M' | 'm'
+                | 'Z'
+                | 'z'
+                | 'L'
+                | 'l'
+                | 'H'
+                | 'h'
+                | 'V'
+                | 'v'
+                | 'C'
+                | 'c'
+                | 'S'
+                | 's'
+                | 'Q'
+                | 'q'
         )
     })
     .count()
@@ -5330,6 +5349,72 @@ fn compact_smooth_relative_svg_path_data_from_segments(
     compact_smooth_relative_svg_path_data_with_line_mode(start, segments, false)
 }
 
+fn compact_quadratic_relative_svg_path_data_from_segments(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
+    let mut data = format!(
+        "M {} {}",
+        format_compact_float(start.0),
+        format_compact_float(start.1)
+    );
+    let mut previous_command: Option<char> = None;
+    let mut current = start;
+
+    for segment in segments {
+        match segment {
+            SvgPathSegment::Line { end, .. } => {
+                if previous_command != Some('l') {
+                    data.push_str(" l");
+                    previous_command = Some('l');
+                }
+
+                data.push_str(&format!(
+                    " {} {}",
+                    format_compact_float(end.0 - current.0),
+                    format_compact_float(end.1 - current.1)
+                ));
+                current = *end;
+            }
+            SvgPathSegment::Cubic(cubic) => {
+                if let Some(control) = quadratic_approximation_for_tiny_cubic(*cubic) {
+                    if previous_command != Some('q') {
+                        data.push_str(" q");
+                        previous_command = Some('q');
+                    }
+
+                    data.push_str(&format!(
+                        " {} {} {} {}",
+                        format_compact_float(control.0 - current.0),
+                        format_compact_float(control.1 - current.1),
+                        format_compact_float(cubic.end.0 - current.0),
+                        format_compact_float(cubic.end.1 - current.1)
+                    ));
+                } else {
+                    if previous_command != Some('c') {
+                        data.push_str(" c");
+                        previous_command = Some('c');
+                    }
+
+                    data.push_str(&format!(
+                        " {} {} {} {} {} {}",
+                        format_compact_float(cubic.control1.0 - current.0),
+                        format_compact_float(cubic.control1.1 - current.1),
+                        format_compact_float(cubic.control2.0 - current.0),
+                        format_compact_float(cubic.control2.1 - current.1),
+                        format_compact_float(cubic.end.0 - current.0),
+                        format_compact_float(cubic.end.1 - current.1)
+                    ));
+                }
+                current = cubic.end;
+            }
+        }
+    }
+
+    data.push_str(" Z");
+    data
+}
+
 fn compact_axis_smooth_relative_svg_path_data_from_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
@@ -5433,6 +5518,49 @@ fn cubic_control_reflection_is_close(
         current.1 * 2.0 - previous_control2.1,
     );
     distance_squared_float(reflected, control1) <= MAX_REFLECTION_DISTANCE * MAX_REFLECTION_DISTANCE
+}
+
+fn quadratic_approximation_for_tiny_cubic(cubic: CubicSegment) -> Option<(f64, f64)> {
+    const MAX_CHORD_LENGTH: f64 = 8.0;
+    const MAX_APPROXIMATION_ERROR: f64 = 0.15;
+
+    if cubic_chord_length(cubic) > MAX_CHORD_LENGTH {
+        return None;
+    }
+
+    let midpoint = cubic_point(cubic, 0.5);
+    let control = (
+        midpoint.0 * 2.0 - (cubic.start.0 + cubic.end.0) * 0.5,
+        midpoint.1 * 2.0 - (cubic.start.1 + cubic.end.1) * 0.5,
+    );
+    let max_error_squared = MAX_APPROXIMATION_ERROR * MAX_APPROXIMATION_ERROR;
+
+    (1..16)
+        .all(|step| {
+            let parameter = step as f64 / 16.0;
+            let cubic_point = cubic_point(cubic, parameter);
+            let quadratic_point = quadratic_point(cubic.start, control, cubic.end, parameter);
+            distance_squared_float(cubic_point, quadratic_point) <= max_error_squared
+        })
+        .then_some(control)
+}
+
+fn quadratic_point(
+    start: (f64, f64),
+    control: (f64, f64),
+    end: (f64, f64),
+    parameter: f64,
+) -> (f64, f64) {
+    let inverse = 1.0 - parameter;
+
+    (
+        inverse * inverse * start.0
+            + 2.0 * parameter * inverse * control.0
+            + parameter * parameter * end.0,
+        inverse * inverse * start.1
+            + 2.0 * parameter * inverse * control.1
+            + parameter * parameter * end.1,
+    )
 }
 
 fn fit_open_cubic_segments_raw(
@@ -7045,6 +7173,21 @@ mod tests {
         let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
 
         assert_eq!(data, "M0 0c0 10 10 10 10 0s10-10 10 0Z");
+    }
+
+    #[test]
+    fn compact_path_data_uses_quadratic_for_tiny_cubic() {
+        let segments = vec![SvgPathSegment::Cubic(CubicSegment {
+            start: (0.0, 0.0),
+            control1: (0.19, -0.75),
+            control2: (1.81, -0.75),
+            end: (2.0, 0.0),
+        })];
+
+        let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
+
+        assert!(data.contains('q'), "{data}");
+        assert!(!data.contains('c'), "{data}");
     }
 
     #[test]
