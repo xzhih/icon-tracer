@@ -3622,11 +3622,36 @@ fn optimize_potrace_segments(
             opt_tolerance,
         );
 
-        let optimized = prune_tiny_potrace_curve_segments(optimized);
-        let optimized = regularize_potrace_orthogonal_corners(optimized);
-        return (start, demote_nearly_linear_potrace_cubics(optimized));
+        return finish_potrace_segments(start, optimized, opt_tolerance);
     }
 
+    let (start, optimized) = optimize_mixed_potrace_curve_runs_once(start, segments, opt_tolerance);
+    finish_potrace_segments(start, optimized, opt_tolerance)
+}
+
+fn finish_potrace_segments(
+    start: (f64, f64),
+    segments: Vec<SvgPathSegment>,
+    opt_tolerance: f64,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
+    let optimized = cleanup_potrace_segments(segments);
+    if optimized
+        .iter()
+        .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+    {
+        return (start, optimized);
+    }
+
+    let (start, optimized) =
+        optimize_mixed_potrace_curve_runs_once(start, &optimized, opt_tolerance);
+    (start, cleanup_potrace_segments(optimized))
+}
+
+fn optimize_mixed_potrace_curve_runs_once(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+    opt_tolerance: f64,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
     let rotated = rotate_potrace_segments_after_last_line(segments);
     let start = rotated.first().map_or(start, |segment| segment.start());
     let mut optimized = Vec::new();
@@ -3643,9 +3668,13 @@ fn optimize_potrace_segments(
     }
 
     flush_potrace_curve_run(&mut optimized, &mut curve_run, opt_tolerance);
-    let optimized = prune_tiny_potrace_curve_segments(optimized);
+    (start, optimized)
+}
+
+fn cleanup_potrace_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    let optimized = prune_tiny_potrace_curve_segments(segments);
     let optimized = regularize_potrace_orthogonal_corners(optimized);
-    (start, demote_nearly_linear_potrace_cubics(optimized))
+    demote_nearly_linear_potrace_cubics(optimized)
 }
 
 fn demote_nearly_linear_potrace_cubics(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -6394,6 +6423,31 @@ mod tests {
 
         assert!(matches!(cleaned[0], SvgPathSegment::Line { .. }));
         assert!(matches!(cleaned[1], SvgPathSegment::Cubic(_)));
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_reruns_curve_optimization_after_linear_demotion() {
+        let segments = vec![
+            SvgPathSegment::Cubic(test_cubic((0.0, 0.0), (1.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((1.0, 0.0), (2.0, 0.0))),
+            SvgPathSegment::Cubic(line_as_cubic((2.0, 0.0), (30.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((30.0, 0.0), (31.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((31.0, 0.0), (32.0, 0.0))),
+            SvgPathSegment::Cubic(line_as_cubic((32.0, 0.0), (0.0, 0.0))),
+        ];
+
+        let (_, optimized) = finish_potrace_segments((0.0, 0.0), segments, 0.2);
+        let cubic_count = optimized
+            .iter()
+            .filter(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+            .count();
+        let line_count = optimized
+            .iter()
+            .filter(|segment| matches!(segment, SvgPathSegment::Line { .. }))
+            .count();
+
+        assert_eq!(cubic_count, 2, "{optimized:?}");
+        assert_eq!(line_count, 2, "{optimized:?}");
     }
 
     #[test]
