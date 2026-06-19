@@ -3623,7 +3623,8 @@ fn optimize_potrace_segments(
         );
 
         let optimized = prune_tiny_potrace_curve_segments(optimized);
-        return (start, regularize_potrace_orthogonal_corners(optimized));
+        let optimized = regularize_potrace_orthogonal_corners(optimized);
+        return (start, demote_nearly_linear_potrace_cubics(optimized));
     }
 
     let rotated = rotate_potrace_segments_after_last_line(segments);
@@ -3643,7 +3644,31 @@ fn optimize_potrace_segments(
 
     flush_potrace_curve_run(&mut optimized, &mut curve_run, opt_tolerance);
     let optimized = prune_tiny_potrace_curve_segments(optimized);
-    (start, regularize_potrace_orthogonal_corners(optimized))
+    let optimized = regularize_potrace_orthogonal_corners(optimized);
+    (start, demote_nearly_linear_potrace_cubics(optimized))
+}
+
+fn demote_nearly_linear_potrace_cubics(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    segments
+        .into_iter()
+        .map(|segment| match segment {
+            SvgPathSegment::Cubic(cubic) if potrace_cubic_is_nearly_linear(cubic) => {
+                SvgPathSegment::Line {
+                    start: cubic.start,
+                    end: cubic.end,
+                }
+            }
+            segment => segment,
+        })
+        .collect()
+}
+
+fn potrace_cubic_is_nearly_linear(cubic: CubicSegment) -> bool {
+    const MIN_LINEAR_LENGTH: f64 = 16.0;
+    const MAX_LINEAR_DEVIATION: f64 = 0.25;
+
+    cubic_chord_length(cubic) >= MIN_LINEAR_LENGTH
+        && cubic_chord_deviation(cubic) <= MAX_LINEAR_DEVIATION
 }
 
 fn prune_tiny_potrace_curve_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -6346,6 +6371,29 @@ mod tests {
         let pruned = prune_tiny_potrace_curve_segments(segments);
 
         assert_eq!(pruned.len(), 4);
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_demotes_nearly_linear_cubics() {
+        let segments = vec![
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (0.0, 0.0),
+                control1: (33.0, 0.05),
+                control2: (66.0, -0.05),
+                end: (100.0, 0.0),
+            }),
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (100.0, 0.0),
+                control1: (100.0, 40.0),
+                control2: (140.0, 40.0),
+                end: (140.0, 0.0),
+            }),
+        ];
+
+        let cleaned = demote_nearly_linear_potrace_cubics(segments);
+
+        assert!(matches!(cleaned[0], SvgPathSegment::Line { .. }));
+        assert!(matches!(cleaned[1], SvgPathSegment::Cubic(_)));
     }
 
     #[test]
