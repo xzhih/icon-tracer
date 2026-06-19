@@ -4487,12 +4487,12 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
 fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
     let absolute = compact_absolute_svg_path_data_from_segments(start, segments);
     let relative = compact_relative_svg_path_data_from_segments(start, segments);
+    let smooth = compact_smooth_relative_svg_path_data_from_segments(start, segments);
 
-    if relative.len() < absolute.len() {
-        relative
-    } else {
-        absolute
-    }
+    [absolute, relative, smooth]
+        .into_iter()
+        .min_by_key(String::len)
+        .expect("compact path candidates should not be empty")
 }
 
 fn compact_absolute_svg_path_data_from_segments(
@@ -4592,6 +4592,92 @@ fn compact_relative_svg_path_data_from_segments(
 
     data.push_str(" Z");
     data
+}
+
+fn compact_smooth_relative_svg_path_data_from_segments(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> String {
+    let mut data = format!(
+        "M {} {}",
+        format_compact_float(start.0),
+        format_compact_float(start.1)
+    );
+    let mut previous_command: Option<char> = None;
+    let mut current = start;
+    let mut previous_cubic_control2: Option<(f64, f64)> = None;
+
+    for segment in segments {
+        match segment {
+            SvgPathSegment::Line { end, .. } => {
+                if previous_command != Some('l') {
+                    data.push_str(" l");
+                    previous_command = Some('l');
+                }
+
+                data.push_str(&format!(
+                    " {} {}",
+                    format_compact_float(end.0 - current.0),
+                    format_compact_float(end.1 - current.1)
+                ));
+                current = *end;
+                previous_cubic_control2 = None;
+            }
+            SvgPathSegment::Cubic(cubic) => {
+                if previous_cubic_control2.is_some_and(|control2| {
+                    cubic_control_reflection_is_close(current, control2, cubic.control1)
+                }) {
+                    if previous_command != Some('s') {
+                        data.push_str(" s");
+                        previous_command = Some('s');
+                    }
+
+                    data.push_str(&format!(
+                        " {} {}, {} {}",
+                        format_compact_float(cubic.control2.0 - current.0),
+                        format_compact_float(cubic.control2.1 - current.1),
+                        format_compact_float(cubic.end.0 - current.0),
+                        format_compact_float(cubic.end.1 - current.1)
+                    ));
+                } else {
+                    if previous_command != Some('c') {
+                        data.push_str(" c");
+                        previous_command = Some('c');
+                    }
+
+                    data.push_str(&format!(
+                        " {} {}, {} {}, {} {}",
+                        format_compact_float(cubic.control1.0 - current.0),
+                        format_compact_float(cubic.control1.1 - current.1),
+                        format_compact_float(cubic.control2.0 - current.0),
+                        format_compact_float(cubic.control2.1 - current.1),
+                        format_compact_float(cubic.end.0 - current.0),
+                        format_compact_float(cubic.end.1 - current.1)
+                    ));
+                }
+
+                current = cubic.end;
+                previous_cubic_control2 = Some(cubic.control2);
+            }
+        }
+    }
+
+    data.push_str(" Z");
+    data
+}
+
+fn cubic_control_reflection_is_close(
+    current: (f64, f64),
+    previous_control2: (f64, f64),
+    control1: (f64, f64),
+) -> bool {
+    const MAX_REFLECTION_DISTANCE: f64 = 0.02;
+
+    let reflected = (
+        current.0 * 2.0 - previous_control2.0,
+        current.1 * 2.0 - previous_control2.1,
+    );
+    distance_squared_float(reflected, control1) <= MAX_REFLECTION_DISTANCE * MAX_REFLECTION_DISTANCE
 }
 
 fn fit_open_cubic_segments_raw(
@@ -6092,6 +6178,28 @@ mod tests {
         let data = compact_svg_path_data_from_segments((10.12345, 20.98765), &segments);
 
         assert_eq!(data, "M 10.12 20.99 l 1.43 1.46 Z");
+    }
+
+    #[test]
+    fn compact_path_data_uses_smooth_cubic_shorthand() {
+        let segments = vec![
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (0.0, 0.0),
+                control1: (0.0, 10.0),
+                control2: (10.0, 10.0),
+                end: (10.0, 0.0),
+            }),
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (10.0, 0.0),
+                control1: (10.0, -10.0),
+                control2: (20.0, -10.0),
+                end: (20.0, 0.0),
+            }),
+        ];
+
+        let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
+
+        assert_eq!(data, "M 0 0 c 0 10, 10 10, 10 0 s 10 -10, 10 0 Z");
     }
 
     #[test]
