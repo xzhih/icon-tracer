@@ -57,28 +57,28 @@ PARITY_LIMITS = {
         "icon_d_bytes": 25,
     },
     "circle": {
-        "mask_ae_pixels": 1,
+        "mask_ae_pixels": 0,
         "icon_command_count": 7,
         "icon_svg_point_count": 16,
-        "icon_d_bytes": 148,
+        "icon_d_bytes": 125,
     },
     "triangle": {
         "mask_ae_pixels": 0,
         "icon_command_count": 8,
         "icon_svg_point_count": 8,
-        "icon_d_bytes": 72,
+        "icon_d_bytes": 66,
     },
     "roundbar": {
-        "mask_ae_pixels": 1,
+        "mask_ae_pixels": 0,
         "icon_command_count": 8,
         "icon_svg_point_count": 19,
-        "icon_d_bytes": 170,
+        "icon_d_bytes": 143,
     },
     "diagonal_bar": {
-        "mask_ae_pixels": 2,
+        "mask_ae_pixels": 0,
         "icon_command_count": 10,
         "icon_svg_point_count": 25,
-        "icon_d_bytes": 207,
+        "icon_d_bytes": 179,
     },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")

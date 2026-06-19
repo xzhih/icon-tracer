@@ -939,7 +939,7 @@ impl TracedBitmap {
             .filter_map(|path| path_to_svg_data(path, options, Some((self.width, self.height))))
             .collect::<Vec<_>>()
             .join(" ");
-        let path = svg_path_element(&path_data, options.pixel_potrace);
+        let path = svg_path_element(&path_data, options.pixel_potrace, self.height);
 
         format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}">{}</svg>"#,
@@ -962,12 +962,17 @@ impl TracedBitmap {
     }
 }
 
-fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String {
+fn svg_path_element(
+    path_data: &str,
+    allow_scaled_potrace_path: bool,
+    canvas_height: usize,
+) -> String {
     let plain = format!(r#"<path fill="black" fill-rule="evenodd" d="{path_data}"/>"#);
     if !allow_scaled_potrace_path {
         return plain;
     }
     let mut best = plain;
+    let mut best_path_data_len = path_data.len();
 
     if let Some(scaled_path_data) = scaled_integer_svg_path_data(path_data, 100.0) {
         let scaled = format!(
@@ -976,6 +981,7 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
 
         if scaled.len() < best.len() {
             best = scaled;
+            best_path_data_len = scaled_path_data.len();
         }
     }
 
@@ -985,6 +991,7 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
                 format!(r#"<path fill="black" fill-rule="evenodd" d="{one_decimal_path_data}"/>"#);
             if one_decimal.len() < best.len() {
                 best = one_decimal;
+                best_path_data_len = one_decimal_path_data.len();
             }
 
             if path_data_has_quadratic_commands(&one_decimal_path_data) {
@@ -996,7 +1003,20 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
                     );
                     if snapped.len() < best.len() {
                         best = snapped;
+                        best_path_data_len = snapped_path_data.len();
                     }
+                }
+            }
+
+            if let Some(potrace_path_data) =
+                potrace_y_flipped_integer_svg_path_data(&one_decimal_path_data, canvas_height, 10.0)
+            {
+                let potrace_scaled = format!(
+                    r#"<path fill="black" fill-rule="evenodd" transform="translate(0 {canvas_height}) scale(.1 -.1)" d="{potrace_path_data}"/>"#
+                );
+
+                if potrace_path_data.len() < best_path_data_len {
+                    best = potrace_scaled;
                 }
             }
         }
@@ -6025,6 +6045,155 @@ fn scaled_integer_svg_path_data(data: &str, scale_factor: f64) -> Option<String>
     Some(minify_svg_path_tokens(&tokens))
 }
 
+fn potrace_y_flipped_integer_svg_path_data(
+    data: &str,
+    canvas_height: usize,
+    scale_factor: f64,
+) -> Option<String> {
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+    let mut command = None;
+    let height = canvas_height as f64 * scale_factor;
+
+    while index < data.len() {
+        skip_svg_path_separators(data, &mut index);
+        if index >= data.len() {
+            break;
+        }
+
+        let byte = data.as_bytes()[index];
+        if byte.is_ascii_alphabetic() {
+            let next_command = byte as char;
+            tokens.push(next_command.to_string());
+            command = (!matches!(next_command, 'Z' | 'z')).then_some(next_command);
+            index += 1;
+            continue;
+        }
+
+        let command = command?;
+        let relative = command.is_ascii_lowercase();
+        match command.to_ascii_uppercase() {
+            'M' | 'L' | 'T' => {
+                while index < data.len() && !svg_path_next_token_is_command(data, index) {
+                    push_potrace_transformed_pair(
+                        data,
+                        &mut index,
+                        &mut tokens,
+                        relative,
+                        height,
+                        scale_factor,
+                    )?;
+                    skip_svg_path_separators(data, &mut index);
+                }
+            }
+            'C' => {
+                while index < data.len() && !svg_path_next_token_is_command(data, index) {
+                    for _ in 0..3 {
+                        push_potrace_transformed_pair(
+                            data,
+                            &mut index,
+                            &mut tokens,
+                            relative,
+                            height,
+                            scale_factor,
+                        )?;
+                    }
+                    skip_svg_path_separators(data, &mut index);
+                }
+            }
+            'S' | 'Q' => {
+                while index < data.len() && !svg_path_next_token_is_command(data, index) {
+                    for _ in 0..2 {
+                        push_potrace_transformed_pair(
+                            data,
+                            &mut index,
+                            &mut tokens,
+                            relative,
+                            height,
+                            scale_factor,
+                        )?;
+                    }
+                    skip_svg_path_separators(data, &mut index);
+                }
+            }
+            'H' => {
+                while index < data.len() && !svg_path_next_token_is_command(data, index) {
+                    let x = read_svg_path_number(data, &mut index)? * scale_factor;
+                    tokens.push(format_integer_svg_token(x));
+                    skip_svg_path_separators(data, &mut index);
+                }
+            }
+            'V' => {
+                while index < data.len() && !svg_path_next_token_is_command(data, index) {
+                    let y = read_svg_path_number(data, &mut index)?;
+                    let y = if relative {
+                        -y * scale_factor
+                    } else {
+                        height - y * scale_factor
+                    };
+                    tokens.push(format_integer_svg_token(y));
+                    skip_svg_path_separators(data, &mut index);
+                }
+            }
+            _ => return None,
+        }
+    }
+
+    Some(minify_svg_path_tokens(&tokens))
+}
+
+fn push_potrace_transformed_pair(
+    data: &str,
+    index: &mut usize,
+    tokens: &mut Vec<String>,
+    relative: bool,
+    height: f64,
+    scale_factor: f64,
+) -> Option<()> {
+    let x = read_svg_path_number(data, index)?;
+    skip_svg_path_separators(data, index);
+    let y = read_svg_path_number(data, index)?;
+    let y = if relative {
+        -y * scale_factor
+    } else {
+        height - y * scale_factor
+    };
+    tokens.push(format_integer_svg_token(x * scale_factor));
+    tokens.push(format_integer_svg_token(y));
+    Some(())
+}
+
+fn read_svg_path_number(data: &str, index: &mut usize) -> Option<f64> {
+    skip_svg_path_separators(data, index);
+    let end = svg_number_token_end(data, *index)?;
+    let value = data[*index..end].parse::<f64>().ok()?;
+    *index = end;
+    Some(value)
+}
+
+fn skip_svg_path_separators(data: &str, index: &mut usize) {
+    while *index < data.len() {
+        let byte = data.as_bytes()[*index];
+        if byte.is_ascii_whitespace() || byte == b',' {
+            *index += 1;
+        } else {
+            break;
+        }
+    }
+}
+
+fn svg_path_next_token_is_command(data: &str, index: usize) -> bool {
+    data.as_bytes()
+        .get(index)
+        .is_some_and(|byte| byte.is_ascii_alphabetic())
+}
+
+fn format_integer_svg_token(value: f64) -> String {
+    let rounded = value.round();
+    let rounded = if rounded == 0.0 { 0.0 } else { rounded };
+    format!("{rounded:.0}")
+}
+
 fn one_decimal_svg_path_data(data: &str) -> Option<String> {
     let mut tokens = Vec::new();
     let mut index = 0usize;
@@ -8323,16 +8492,19 @@ mod tests {
     }
 
     #[test]
-    fn scaled_potrace_path_element_is_used_only_when_shorter() {
+    fn pixel_potrace_path_element_uses_y_flipped_integer_path_when_shorter() {
         let diagonal = "M92.5 183c-11 9.62-21.5 18.18-23.32 19-6.29 2.84-15.93 1.27-19.72-3.2-4.94-5.83-6.24-13.59-3.43-20.53.84-2.07 23.11-22.67 49.5-45.77l67.98-59.5c11-9.62 21.5-18.17 23.32-19 6.29-2.84 15.93-1.27 19.72 3.2 4.94 5.83 6.24 13.59 3.43 20.53-.84 2.07-23.11 22.67-49.5 45.77l-67.98 59.5Z";
         let square = "M72 72l112 0 0 112-112 0 0-56 0-56Z";
 
-        let diagonal_path = svg_path_element(diagonal, true);
-        let square_path = svg_path_element(square, true);
+        let diagonal_path = svg_path_element(diagonal, true, 256);
+        let square_path = svg_path_element(square, true, 256);
 
-        assert!(!diagonal_path.contains("transform="), "{diagonal_path}");
-        assert!(diagonal_path.contains("9.6"), "{diagonal_path}");
-        assert!(diagonal_path.len() < svg_path_element(diagonal, false).len());
+        assert!(
+            diagonal_path.contains("translate(0 256) scale(.1 -.1)"),
+            "{diagonal_path}"
+        );
+        assert!(diagonal_path.contains("M925 730"), "{diagonal_path}");
+        assert!(diagonal_path.contains("-96"), "{diagonal_path}");
         assert!(!square_path.contains("transform="), "{square_path}");
     }
 
@@ -8340,19 +8512,22 @@ mod tests {
     fn one_decimal_path_element_uses_half_away_rounding_for_quadratics() {
         let triangle = "M84.5 129l42.5-85.25q1-1.12 2 0l42.5 85.25 42.5 84.75-86 .25-86-.25Z";
 
-        let path = svg_path_element(triangle, true);
+        let rounded =
+            one_decimal_svg_path_data(triangle).expect("triangle path should round cleanly");
+        let snapped = snap_near_integer_one_decimal_svg_path_data(&rounded)
+            .expect("rounded triangle path should snap cleanly");
 
-        assert!(path.contains("-85.3"), "{path}");
-        assert!(path.contains("q1-1 2 0"), "{path}");
-        assert!(!path.contains("q1-1.1"), "{path}");
-        assert!(path.len() < svg_path_element(triangle, false).len());
+        assert!(rounded.contains("-85.3"), "{rounded}");
+        assert!(rounded.contains("q1-1.1 2 0"), "{rounded}");
+        assert!(snapped.contains("q1-1 2 0"), "{snapped}");
+        assert!(!snapped.contains("q1-1.1"), "{snapped}");
     }
 
     #[test]
     fn one_decimal_path_element_skips_arc_commands() {
         let circle = "M52.15 128a75.85 75.9 0 1 0 151.7 0a75.85 75.9 0 1 0-151.7 0Z";
 
-        let path = svg_path_element(circle, true);
+        let path = svg_path_element(circle, true, 256);
 
         assert!(path.contains("75.85"), "{path}");
         assert!(!path.contains("75.9 75.9"), "{path}");
