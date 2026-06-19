@@ -116,6 +116,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 39,
         "icon_d_bytes": 248,
     },
+    "c_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 21,
+        "icon_svg_point_count": 51,
+        "icon_d_bytes": 354,
+    },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
@@ -189,6 +195,7 @@ def fixtures() -> list[Fixture]:
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
         Fixture("rounded_rect_r32", shape_rounded_rect(32.0)),
         Fixture("u_shape", shape_u()),
+        Fixture("c_shape", shape_c()),
     ]
 
 
@@ -280,6 +287,18 @@ def shape_u() -> list[bool]:
         return False
 
     return fill(inside)
+
+
+def shape_c() -> list[bool]:
+    cx = cy = CANVAS / 2
+    outer_radius = 78
+    inner_radius = 44
+    return fill(
+        lambda x, y: inner_radius * inner_radius
+        < (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2
+        <= outer_radius * outer_radius
+        and not (x + 0.5 > cx and abs(y + 0.5 - cy) < 34)
+    )
 
 
 def shape_diagonal_bar() -> list[bool]:
