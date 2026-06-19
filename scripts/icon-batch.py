@@ -123,8 +123,6 @@ def process_icon(
     report_path = out_dir / "reports" / f"{slug}.json"
     command = [
         str(icon_tracer),
-        "--preset",
-        "icon",
         "--alpha-background",
         args.alpha_background,
         "--optimize-icon",

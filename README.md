@@ -15,10 +15,11 @@ cargo run -- [--preset default|logo|scan|icon] [--threshold auto|0-255] [--inver
 Examples:
 
 ```sh
-cargo run -- sample.pbm sample.svg
+cargo run -- icon.png icon.svg
 cargo run -- logo.png logo.svg
 cargo run -- --preset logo logo.jpg logo.svg
 cargo run -- --preset logo --contour subpixel logo.jpg logo.svg
+cargo run -- --preset default sample.pbm sample.svg
 cargo run -- --contour scalar --curve fit logo.png logo.svg
 cargo run -- --contour scalar --curve potrace logo.png logo.svg
 cargo run -- --threshold 180 --invert scan.pgm scan.svg
@@ -29,8 +30,8 @@ cargo run -- --curve polygon --preset logo logo.pbm logo.svg
 cargo run -- --fit --opt-tolerance 0.75 logo.pbm logo.svg
 cargo run -- --turd-size 2 noisy.pbm clean.svg
 cargo run -- --opt-tolerance 0.75 stair.pbm simplified.svg
-cargo run -- --preset icon --invert --alpha-background black --optimize-icon --optimization-report report.json icon.png icon.svg
-cargo run -- --preset icon --invert --alpha-background black --optimize-icon --isolate-foreground --optimization-report report.json icon.png icon.svg
+cargo run -- --invert --alpha-background black --optimize-icon --optimization-report report.json icon.png icon.svg
+cargo run -- --invert --alpha-background black --optimize-icon --isolate-foreground --optimization-report report.json icon.png icon.svg
 ```
 
 ## Current tracing behavior
@@ -59,7 +60,8 @@ The trace pipeline is:
    - `potrace`: optimal-polygon-style simplification, vertex adjustment, alpha-based corner smoothing, and graph-based opticurve merging.
 7. SVG emission as one even-odd filled path. Holes are emitted in the same `<path>` using `fill-rule="evenodd"`.
 
-- `--contour pixel` traces exact pixel-cell boundaries and is the default.
+- Without `--preset`, `icon-tracer` uses the `icon` preset.
+- `--contour pixel` traces exact pixel-cell boundaries. Use `--preset default` for raw pixel/polygon tracing.
 - `--contour subpixel` uses a marching-squares contour over the binary image, producing half-pixel coordinates that reduce stair-step outlines.
 - `--contour scalar` uses marching squares over PNG/JPEG luma samples and linearly interpolates threshold crossings before fitting curves. This preserves anti-aliased edge information that binary contours discard.
 - `--smooth` rounds polygon corners with cubic Bézier segments.
@@ -134,13 +136,13 @@ because it compares rendered SVG pixels.
 ## Presets
 
 Presets are convenience defaults. Any explicit flag overrides the preset
-regardless of argument order.
+regardless of argument order. The implicit preset is `icon`.
 
 Presets only tune tracing. `icon-tracer` does not compose app-icon canvases,
 rounded backgrounds, preview images, package assets, or semantic brand
 decisions; those belong in a caller or workflow layer.
 
-- `default`: `--threshold auto --contour pixel --curve polygon --turd-size 0 --opt-tolerance 0`
+- `default`: raw bitmap tracing with `--threshold auto --contour pixel --curve polygon --turd-size 0 --opt-tolerance 0`
 - `logo`: `--threshold auto --contour subpixel --curve potrace --turd-size 4 --opt-tolerance 0.75`
 - `scan`: `--threshold auto --contour pixel --curve polygon --turd-size 2 --opt-tolerance 0`
 - `icon`: `--threshold auto --contour subpixel --curve potrace --turd-size 2 --opt-tolerance 0.75`

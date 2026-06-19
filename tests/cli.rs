@@ -15,6 +15,8 @@ fn cli_converts_pbm_file_to_svg_file() {
     fs::write(&input, b"P1\n2 2\n1 0\n0 0\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg(&input)
         .arg(&output)
         .status()
@@ -30,6 +32,39 @@ fn cli_converts_pbm_file_to_svg_file() {
 }
 
 #[test]
+fn cli_uses_icon_preset_by_default() {
+    let work_dir = unique_temp_dir();
+    fs::create_dir_all(&work_dir).expect("temp dir should be created");
+
+    let input = work_dir.join("input.pbm");
+    let default_output = work_dir.join("default.svg");
+    let icon_output = work_dir.join("icon.svg");
+    fs::write(&input, b"P1\n3 3\n1 1 1\n1 1 1\n1 1 1\n").expect("input should be written");
+
+    let default_status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg(&input)
+        .arg(&default_output)
+        .status()
+        .expect("icon-tracer should run");
+    let icon_status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("icon")
+        .arg(&input)
+        .arg(&icon_output)
+        .status()
+        .expect("icon-tracer should run");
+
+    assert!(default_status.success());
+    assert!(icon_status.success());
+
+    let default_svg = fs::read_to_string(&default_output).expect("SVG should be written");
+    let icon_svg = fs::read_to_string(&icon_output).expect("SVG should be written");
+    assert_eq!(default_svg, icon_svg);
+
+    fs::remove_dir_all(work_dir).expect("temp dir should be removed");
+}
+
+#[test]
 fn cli_smooth_flag_outputs_cubic_segments() {
     let work_dir = unique_temp_dir();
     fs::create_dir_all(&work_dir).expect("temp dir should be created");
@@ -39,6 +74,8 @@ fn cli_smooth_flag_outputs_cubic_segments() {
     fs::write(&input, b"P1\n3 3\n1 1 1\n1 1 1\n1 1 1\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--smooth")
         .arg(&input)
         .arg(&output)
@@ -63,6 +100,8 @@ fn cli_spline_flag_outputs_continuous_cubic_segments() {
     fs::write(&input, b"P1\n3 3\n1 1 1\n1 1 1\n1 1 1\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--spline")
         .arg(&input)
         .arg(&output)
@@ -92,6 +131,8 @@ fn cli_fit_flag_outputs_bounded_cubic_segments() {
     .expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--fit")
         .arg("--opt-tolerance")
         .arg("0.75")
@@ -119,6 +160,8 @@ fn cli_potrace_curve_outputs_midpoint_cubic_segments() {
     fs::write(&input, b"P1\n2 2\n1 1\n1 1\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--curve")
         .arg("potrace")
         .arg(&input)
@@ -146,6 +189,8 @@ fn cli_turd_size_filters_small_components() {
         .expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--turd-size")
         .arg("2")
         .arg(&input)
@@ -176,6 +221,8 @@ fn cli_opt_tolerance_simplifies_stair_step_paths() {
     .expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--opt-tolerance")
         .arg("0.75")
         .arg(&input)
@@ -202,6 +249,8 @@ fn cli_converts_bmp_file_to_svg_file() {
     fs::write(&input, bmp_24_bit_2x2()).expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg(&input)
         .arg(&output)
         .status()
@@ -226,6 +275,8 @@ fn cli_converts_png_file_to_svg_file() {
     fs::write(&input, png_2x1_rgb()).expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg(&input)
         .arg(&output)
         .status()
@@ -250,6 +301,8 @@ fn cli_alpha_background_black_composites_transparent_png_over_black() {
     fs::write(&input, png_2x1_rgba()).expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--threshold")
         .arg("128")
         .arg("--alpha-background")
@@ -277,6 +330,8 @@ fn cli_converts_jpeg_file_to_svg_file() {
     fs::write(&input, jpeg_1x1_black()).expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg(&input)
         .arg(&output)
         .status()
@@ -301,6 +356,8 @@ fn cli_threshold_auto_option_uses_automatic_luma_split() {
     fs::write(&input, b"P2\n4 1\n255\n10 20 220 230\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--threshold=auto")
         .arg(&input)
         .arg(&output)
@@ -325,6 +382,8 @@ fn cli_subpixel_contour_outputs_half_pixel_polygon() {
     fs::write(&input, b"P1\n1 1\n1\n").expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--contour")
         .arg("subpixel")
         .arg(&input)
@@ -350,6 +409,8 @@ fn cli_scalar_contour_outputs_interpolated_polygon() {
     fs::write(&input, png_2x1_gray(&[0, 192])).expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
+        .arg("--preset")
+        .arg("default")
         .arg("--threshold")
         .arg("128")
         .arg("--contour")

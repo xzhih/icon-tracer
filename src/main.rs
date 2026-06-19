@@ -27,7 +27,7 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let mut preset = Preset::Default;
+    let mut preset = Preset::Icon;
     let mut threshold = None;
     let mut invert = None;
     let mut alpha_background = None;
