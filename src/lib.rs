@@ -4485,14 +4485,53 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
 }
 
 fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
-    let absolute = compact_absolute_svg_path_data_from_segments(start, segments);
-    let relative = compact_relative_svg_path_data_from_segments(start, segments);
-    let smooth = compact_smooth_relative_svg_path_data_from_segments(start, segments);
+    let absolute = minify_compact_svg_path_data(&compact_absolute_svg_path_data_from_segments(
+        start, segments,
+    ));
+    let relative = minify_compact_svg_path_data(&compact_relative_svg_path_data_from_segments(
+        start, segments,
+    ));
+    let smooth = minify_compact_svg_path_data(
+        &compact_smooth_relative_svg_path_data_from_segments(start, segments),
+    );
 
     [absolute, relative, smooth]
         .into_iter()
         .min_by_key(String::len)
         .expect("compact path candidates should not be empty")
+}
+
+fn minify_compact_svg_path_data(data: &str) -> String {
+    let mut minified = String::new();
+    let mut previous: Option<&str> = None;
+
+    for token in data.split_whitespace() {
+        if previous.is_some_and(|previous| compact_path_tokens_need_separator(previous, token)) {
+            minified.push(' ');
+        }
+        minified.push_str(token);
+        previous = Some(token);
+    }
+
+    minified
+}
+
+fn compact_path_tokens_need_separator(previous: &str, next: &str) -> bool {
+    if compact_path_token_is_command(previous) || compact_path_token_is_command(next) {
+        return false;
+    }
+
+    !next.starts_with('-') && !next.starts_with('+')
+}
+
+fn compact_path_token_is_command(token: &str) -> bool {
+    token.len() == 1
+        && token.as_bytes().first().is_some_and(|byte| {
+            matches!(
+                byte,
+                b'M' | b'm' | b'Z' | b'z' | b'L' | b'l' | b'C' | b'c' | b'S' | b's'
+            )
+        })
 }
 
 fn compact_absolute_svg_path_data_from_segments(
@@ -5429,7 +5468,13 @@ fn format_float(value: f64) -> String {
 }
 
 fn format_compact_float(value: f64) -> String {
-    format_float_with_precision(value, 2)
+    let mut formatted = format_float_with_precision(value, 2);
+    if formatted.starts_with("0.") {
+        formatted.remove(0);
+    } else if formatted.starts_with("-0.") {
+        formatted.remove(1);
+    }
+    formatted
 }
 
 fn format_float_with_precision(value: f64, precision: usize) -> String {
@@ -6145,7 +6190,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((10.0, 10.0), &segments);
 
-        assert_eq!(data, "M 10 10 l 5 -1 c 2 0 4 3 6 6 Z");
+        assert_eq!(data, "M10 10l5-1c2 0 4 3 6 6Z");
     }
 
     #[test]
@@ -6165,7 +6210,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
 
-        assert_eq!(data, "M 1000 1000 L 0 0 C 0 0 0 0 0 0 Z");
+        assert_eq!(data, "M1000 1000L0 0C0 0 0 0 0 0Z");
     }
 
     #[test]
@@ -6177,7 +6222,19 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((10.12345, 20.98765), &segments);
 
-        assert_eq!(data, "M 10.12 20.99 l 1.43 1.46 Z");
+        assert_eq!(data, "M10.12 20.99l1.43 1.46Z");
+    }
+
+    #[test]
+    fn compact_path_data_omits_fractional_leading_zeroes() {
+        let segments = vec![SvgPathSegment::Line {
+            start: (0.25, -0.25),
+            end: (0.75, -0.75),
+        }];
+
+        let data = compact_svg_path_data_from_segments((0.25, -0.25), &segments);
+
+        assert_eq!(data, "M.25-.25l.5-.5Z");
     }
 
     #[test]
@@ -6199,7 +6256,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
 
-        assert_eq!(data, "M 0 0 c 0 10 10 10 10 0 s 10 -10 10 0 Z");
+        assert_eq!(data, "M0 0c0 10 10 10 10 0s10-10 10 0Z");
     }
 
     #[test]
