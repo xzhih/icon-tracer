@@ -3171,7 +3171,8 @@ fn optimize_potrace_segments(
                 .collect::<Vec<_>>(),
         );
 
-        return (start, prune_tiny_potrace_curve_segments(optimized));
+        let optimized = prune_tiny_potrace_curve_segments(optimized);
+        return (start, regularize_potrace_orthogonal_corners(optimized));
     }
 
     let rotated = rotate_potrace_segments_after_last_line(segments);
@@ -3190,7 +3191,8 @@ fn optimize_potrace_segments(
     }
 
     flush_potrace_curve_run(&mut optimized, &mut curve_run);
-    (start, prune_tiny_potrace_curve_segments(optimized))
+    let optimized = prune_tiny_potrace_curve_segments(optimized);
+    (start, regularize_potrace_orthogonal_corners(optimized))
 }
 
 fn prune_tiny_potrace_curve_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -3257,6 +3259,200 @@ fn potrace_segment_has_spike_turn(
     entry_turn.max(exit_turn) >= MIN_SPIKE_TURN_RADIANS
         && (bridged_turn >= MIN_BRIDGED_TURN_RADIANS
             || (entry_turn >= MIN_SPIKE_TURN_RADIANS && exit_turn >= MIN_SPIKE_TURN_RADIANS))
+}
+
+fn regularize_potrace_orthogonal_corners(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    if segments.len() < 5 {
+        return segments;
+    }
+
+    let mut regularized = Vec::with_capacity(segments.len());
+    let mut index = 0usize;
+    let mut changed = false;
+
+    while index < segments.len() {
+        if let Some(cubic) = regularized_potrace_corner_pair(&segments, index) {
+            regularized.push(SvgPathSegment::Cubic(cubic));
+            changed = true;
+            index += 2;
+            continue;
+        }
+
+        if let Some(cubic) = regularized_potrace_corner(&segments, index) {
+            regularized.push(SvgPathSegment::Cubic(cubic));
+            changed = true;
+            index += 1;
+            continue;
+        }
+
+        regularized.push(segments[index]);
+        index += 1;
+    }
+
+    if changed && regularized.len() >= 3 {
+        regularized
+    } else {
+        segments
+    }
+}
+
+fn regularized_potrace_corner_pair(
+    segments: &[SvgPathSegment],
+    index: usize,
+) -> Option<CubicSegment> {
+    const MAX_LEAD_TURN_RADIANS: f64 = 0.35;
+
+    if index == 0 || index + 2 >= segments.len() {
+        return None;
+    }
+
+    let (
+        SvgPathSegment::Cubic(previous),
+        SvgPathSegment::Cubic(lead),
+        SvgPathSegment::Cubic(turn),
+        SvgPathSegment::Cubic(next),
+    ) = (
+        segments[index - 1],
+        segments[index],
+        segments[index + 1],
+        segments[index + 2],
+    )
+    else {
+        return None;
+    };
+
+    if !potrace_segment_is_straight_edge(previous)
+        || !potrace_segment_is_straight_edge(next)
+        || !potrace_segment_is_short_straight_lead(lead)
+        || !potrace_segment_is_roundable_corner(turn)
+    {
+        return None;
+    }
+
+    let previous_vector = cubic_chord_vector(previous);
+    let lead_vector = cubic_chord_vector(lead);
+    let next_vector = cubic_chord_vector(next);
+    if vector_turn_angle(previous_vector, lead_vector) > MAX_LEAD_TURN_RADIANS
+        || !vectors_are_roughly_orthogonal(previous_vector, next_vector)
+    {
+        return None;
+    }
+
+    let candidate = tangent_corner_cubic(lead.start, turn.end, previous_vector, next_vector)?;
+    potrace_regularized_corner_is_close(&[lead, turn], candidate, 5.0).then_some(candidate)
+}
+
+fn regularized_potrace_corner(segments: &[SvgPathSegment], index: usize) -> Option<CubicSegment> {
+    if index == 0 || index + 1 >= segments.len() {
+        return None;
+    }
+
+    let (
+        SvgPathSegment::Cubic(previous),
+        SvgPathSegment::Cubic(current),
+        SvgPathSegment::Cubic(next),
+    ) = (segments[index - 1], segments[index], segments[index + 1])
+    else {
+        return None;
+    };
+
+    if !potrace_segment_is_straight_edge(previous)
+        || !potrace_segment_is_straight_edge(next)
+        || !potrace_segment_is_roundable_corner(current)
+        || !vectors_are_roughly_orthogonal(cubic_chord_vector(previous), cubic_chord_vector(next))
+    {
+        return None;
+    }
+
+    let candidate = tangent_corner_cubic(
+        current.start,
+        current.end,
+        cubic_chord_vector(previous),
+        cubic_chord_vector(next),
+    )?;
+    potrace_regularized_corner_is_close(&[current], candidate, 3.5).then_some(candidate)
+}
+
+fn potrace_segment_is_straight_edge(cubic: CubicSegment) -> bool {
+    const MIN_STRAIGHT_LENGTH: f64 = 40.0;
+    const MAX_STRAIGHT_DEVIATION: f64 = 1.5;
+
+    cubic_chord_length(cubic) >= MIN_STRAIGHT_LENGTH
+        && cubic_chord_deviation(cubic) <= MAX_STRAIGHT_DEVIATION
+}
+
+fn potrace_segment_is_short_straight_lead(cubic: CubicSegment) -> bool {
+    const MIN_LEAD_LENGTH: f64 = 4.0;
+    const MAX_LEAD_LENGTH: f64 = 32.0;
+    const MAX_LEAD_DEVIATION: f64 = 1.5;
+
+    let length = cubic_chord_length(cubic);
+    (MIN_LEAD_LENGTH..=MAX_LEAD_LENGTH).contains(&length)
+        && cubic_chord_deviation(cubic) <= MAX_LEAD_DEVIATION
+}
+
+fn potrace_segment_is_roundable_corner(cubic: CubicSegment) -> bool {
+    const MIN_CORNER_LENGTH: f64 = 6.0;
+    const MAX_CORNER_LENGTH: f64 = 36.0;
+    const MIN_CORNER_DEVIATION: f64 = 1.5;
+
+    let length = cubic_chord_length(cubic);
+    (MIN_CORNER_LENGTH..=MAX_CORNER_LENGTH).contains(&length)
+        && cubic_chord_deviation(cubic) >= MIN_CORNER_DEVIATION
+}
+
+fn vectors_are_roughly_orthogonal(a: (f64, f64), b: (f64, f64)) -> bool {
+    const MIN_ORTHOGONAL_TURN: f64 = 1.0;
+    const MAX_ORTHOGONAL_TURN: f64 = 2.15;
+
+    let turn = vector_turn_angle(a, b);
+    (MIN_ORTHOGONAL_TURN..=MAX_ORTHOGONAL_TURN).contains(&turn)
+}
+
+fn tangent_corner_cubic(
+    start: (f64, f64),
+    end: (f64, f64),
+    incoming: (f64, f64),
+    outgoing: (f64, f64),
+) -> Option<CubicSegment> {
+    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
+    const MIN_HANDLE_LENGTH: f64 = 2.0;
+
+    let incoming = unit_vector(incoming);
+    let outgoing = unit_vector(outgoing);
+    if vector_length_squared(incoming) <= f64::EPSILON
+        || vector_length_squared(outgoing) <= f64::EPSILON
+    {
+        return None;
+    }
+
+    let delta = subtract(end, start);
+    let incoming_projection = dot(delta, incoming);
+    let outgoing_projection = dot(delta, outgoing);
+    if incoming_projection <= 0.0 || outgoing_projection <= 0.0 {
+        return None;
+    }
+
+    let handle = incoming_projection.min(outgoing_projection) * CIRCLE_ARC_KAPPA;
+    if handle < MIN_HANDLE_LENGTH {
+        return None;
+    }
+
+    Some(CubicSegment {
+        start,
+        control1: add(start, scale(incoming, handle)),
+        control2: subtract(end, scale(outgoing, handle)),
+        end,
+    })
+}
+
+fn potrace_regularized_corner_is_close(
+    source: &[CubicSegment],
+    candidate: CubicSegment,
+    tolerance: f64,
+) -> bool {
+    let samples = sample_cubic_run(source);
+    cubic_runs_are_close(&samples, &[candidate], tolerance)
 }
 
 fn rotate_potrace_segments_after_last_line(segments: &[SvgPathSegment]) -> Vec<SvgPathSegment> {
@@ -3671,6 +3867,13 @@ fn cubic_bounds_diagonal(cubic: CubicSegment) -> f64 {
         .max(cubic.end.1);
 
     (max_x - min_x).hypot(max_y - min_y)
+}
+
+fn cubic_chord_deviation(cubic: CubicSegment) -> f64 {
+    distance_squared_to_segment(cubic.control1, cubic.start, cubic.end)
+        .0
+        .max(distance_squared_to_segment(cubic.control2, cubic.start, cubic.end).0)
+        .sqrt()
 }
 
 fn vector_turn_angle(a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -5052,6 +5255,112 @@ mod tests {
         let pruned = prune_tiny_potrace_curve_segments(segments);
 
         assert_eq!(pruned.len(), 4);
+    }
+
+    #[test]
+    fn regularize_potrace_orthogonal_corner_uses_tangent_controls() {
+        let segments = vec![
+            SvgPathSegment::Cubic(test_cubic((0.0, 0.0), (100.0, 0.0))),
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (100.0, 0.0),
+                control1: (104.0, 0.2),
+                control2: (109.8, 5.5),
+                end: (110.0, 10.0),
+            }),
+            SvgPathSegment::Cubic(test_cubic((110.0, 10.0), (110.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((110.0, 90.0), (40.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((40.0, 90.0), (0.0, 0.0))),
+        ];
+
+        let regularized = regularize_potrace_orthogonal_corners(segments);
+        let SvgPathSegment::Cubic(corner) = regularized[1] else {
+            panic!("corner should remain cubic: {regularized:?}");
+        };
+
+        assert_eq!(regularized.len(), 5);
+        assert!(
+            (corner.control1.1 - corner.start.1).abs() <= 1.0e-6,
+            "{corner:?}"
+        );
+        assert!(
+            (corner.control2.0 - corner.end.0).abs() <= 1.0e-6,
+            "{corner:?}"
+        );
+    }
+
+    #[test]
+    fn regularize_potrace_orthogonal_corner_merges_straight_lead_in() {
+        let segments = vec![
+            SvgPathSegment::Cubic(test_cubic((0.0, 0.0), (100.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((100.0, 0.0), (120.0, 0.0))),
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (120.0, 0.0),
+                control1: (124.0, 0.5),
+                control2: (130.0, 6.0),
+                end: (130.0, 12.0),
+            }),
+            SvgPathSegment::Cubic(test_cubic((130.0, 12.0), (130.0, 92.0))),
+            SvgPathSegment::Cubic(test_cubic((130.0, 92.0), (0.0, 92.0))),
+        ];
+
+        let regularized = regularize_potrace_orthogonal_corners(segments);
+        let SvgPathSegment::Cubic(corner) = regularized[1] else {
+            panic!("merged corner should be cubic: {regularized:?}");
+        };
+
+        assert_eq!(regularized.len(), 4);
+        assert_eq!(corner.start, (100.0, 0.0));
+        assert_eq!(corner.end, (130.0, 12.0));
+    }
+
+    #[test]
+    fn regularize_potrace_orthogonal_corner_rejects_beveled_turn() {
+        let bevel = test_cubic((100.0, 0.0), (110.0, 10.0));
+        let segments = vec![
+            SvgPathSegment::Cubic(test_cubic((0.0, 0.0), (100.0, 0.0))),
+            SvgPathSegment::Cubic(bevel),
+            SvgPathSegment::Cubic(test_cubic((110.0, 10.0), (110.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((110.0, 90.0), (40.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((40.0, 90.0), (0.0, 0.0))),
+        ];
+
+        let regularized = regularize_potrace_orthogonal_corners(segments);
+        let SvgPathSegment::Cubic(unchanged) = regularized[1] else {
+            panic!("bevel should remain cubic: {regularized:?}");
+        };
+
+        assert_eq!(regularized.len(), 5);
+        assert_eq!(unchanged.control1, bevel.control1);
+        assert_eq!(unchanged.control2, bevel.control2);
+    }
+
+    #[test]
+    fn regularize_potrace_orthogonal_corner_ignores_mixed_line_boundaries() {
+        let corner = CubicSegment {
+            start: (100.0, 0.0),
+            control1: (104.0, 0.2),
+            control2: (109.8, 5.5),
+            end: (110.0, 10.0),
+        };
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (100.0, 0.0),
+            },
+            SvgPathSegment::Cubic(corner),
+            SvgPathSegment::Cubic(test_cubic((110.0, 10.0), (110.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((110.0, 90.0), (40.0, 90.0))),
+            SvgPathSegment::Cubic(test_cubic((40.0, 90.0), (0.0, 0.0))),
+        ];
+
+        let regularized = regularize_potrace_orthogonal_corners(segments);
+        let SvgPathSegment::Cubic(unchanged) = regularized[1] else {
+            panic!("mixed line boundary should keep the corner cubic: {regularized:?}");
+        };
+
+        assert_eq!(regularized.len(), 5);
+        assert_eq!(unchanged.control1, corner.control1);
+        assert_eq!(unchanged.control2, corner.control2);
     }
 
     fn test_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
