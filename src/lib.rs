@@ -3161,18 +3161,17 @@ fn optimize_potrace_segments(
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
     {
-        return (
-            start,
-            optimize_closed_potrace_curve_run(
-                &segments
-                    .iter()
-                    .filter_map(|segment| match segment {
-                        SvgPathSegment::Cubic(cubic) => Some(*cubic),
-                        SvgPathSegment::Line { .. } => None,
-                    })
-                    .collect::<Vec<_>>(),
-            ),
+        let optimized = optimize_closed_potrace_curve_run(
+            &segments
+                .iter()
+                .filter_map(|segment| match segment {
+                    SvgPathSegment::Cubic(cubic) => Some(*cubic),
+                    SvgPathSegment::Line { .. } => None,
+                })
+                .collect::<Vec<_>>(),
         );
+
+        return (start, prune_tiny_potrace_curve_segments(optimized));
     }
 
     let rotated = rotate_potrace_segments_after_last_line(segments);
@@ -3191,7 +3190,52 @@ fn optimize_potrace_segments(
     }
 
     flush_potrace_curve_run(&mut optimized, &mut curve_run);
-    (start, optimized)
+    (start, prune_tiny_potrace_curve_segments(optimized))
+}
+
+fn prune_tiny_potrace_curve_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    if segments.len() < 5 {
+        return segments;
+    }
+
+    let mut pruned = Vec::with_capacity(segments.len());
+    for index in 0..segments.len() {
+        if potrace_segment_is_tiny_spike(&segments, index) {
+            continue;
+        }
+
+        pruned.push(segments[index]);
+    }
+
+    if pruned.len() >= 3 && pruned.len() < segments.len() {
+        pruned
+    } else {
+        segments
+    }
+}
+
+fn potrace_segment_is_tiny_spike(segments: &[SvgPathSegment], index: usize) -> bool {
+    const TINY_CHORD_LENGTH: f64 = 1.25;
+    const TINY_BOUNDS_DIAGONAL: f64 = 1.5;
+    const MIN_NEIGHBOR_CHORD_LENGTH: f64 = 4.0;
+
+    if index == 0 || index + 1 >= segments.len() {
+        return false;
+    }
+
+    let (
+        SvgPathSegment::Cubic(previous),
+        SvgPathSegment::Cubic(current),
+        SvgPathSegment::Cubic(next),
+    ) = (segments[index - 1], segments[index], segments[index + 1])
+    else {
+        return false;
+    };
+
+    cubic_chord_length(current) <= TINY_CHORD_LENGTH
+        && cubic_bounds_diagonal(current) <= TINY_BOUNDS_DIAGONAL
+        && cubic_chord_length(previous) >= MIN_NEIGHBOR_CHORD_LENGTH
+        && cubic_chord_length(next) >= MIN_NEIGHBOR_CHORD_LENGTH
 }
 
 fn rotate_potrace_segments_after_last_line(segments: &[SvgPathSegment]) -> Vec<SvgPathSegment> {
@@ -3396,7 +3440,7 @@ fn cubic_run_fit_penalty(samples: &[(f64, f64)], cubic: CubicSegment) -> f64 {
 }
 
 fn fit_closed_smooth_potrace_segments(points: &[(f64, f64)]) -> Vec<SvgPathSegment> {
-    const SMOOTH_FIT_ERROR: f64 = 0.75;
+    const SMOOTH_FIT_ERROR: f64 = 1.1;
 
     let breakpoints = even_fit_breakpoints(points.len());
     let mut segments = Vec::new();
@@ -3569,6 +3613,39 @@ struct CubicSegment {
     control1: (f64, f64),
     control2: (f64, f64),
     end: (f64, f64),
+}
+
+fn cubic_chord_length(cubic: CubicSegment) -> f64 {
+    (cubic.end.0 - cubic.start.0).hypot(cubic.end.1 - cubic.start.1)
+}
+
+fn cubic_bounds_diagonal(cubic: CubicSegment) -> f64 {
+    let min_x = cubic
+        .start
+        .0
+        .min(cubic.control1.0)
+        .min(cubic.control2.0)
+        .min(cubic.end.0);
+    let max_x = cubic
+        .start
+        .0
+        .max(cubic.control1.0)
+        .max(cubic.control2.0)
+        .max(cubic.end.0);
+    let min_y = cubic
+        .start
+        .1
+        .min(cubic.control1.1)
+        .min(cubic.control2.1)
+        .min(cubic.end.1);
+    let max_y = cubic
+        .start
+        .1
+        .max(cubic.control1.1)
+        .max(cubic.control2.1)
+        .max(cubic.end.1);
+
+    (max_x - min_x).hypot(max_y - min_y)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -4919,6 +4996,41 @@ mod tests {
         let best_index = best_icon_candidate_index(&candidates).expect("candidates should exist");
 
         assert_eq!(best_index, 1);
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_removes_tiny_spike_between_long_curves() {
+        let segments = vec![
+            SvgPathSegment::Cubic(test_cubic((0.0, 0.0), (10.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((10.0, 0.0), (20.0, 0.0))),
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (20.0, 0.0),
+                control1: (20.1, 0.0),
+                control2: (20.5, -0.3),
+                end: (20.6, -0.4),
+            }),
+            SvgPathSegment::Cubic(test_cubic((20.6, -0.4), (30.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((30.0, 0.0), (40.0, 0.0))),
+        ];
+
+        let pruned = prune_tiny_potrace_curve_segments(segments);
+
+        assert_eq!(pruned.len(), 4);
+    }
+
+    fn test_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
+        CubicSegment {
+            start,
+            control1: (
+                start.0 + (end.0 - start.0) / 3.0,
+                start.1 + (end.1 - start.1) / 3.0,
+            ),
+            control2: (
+                start.0 + (end.0 - start.0) * 2.0 / 3.0,
+                start.1 + (end.1 - start.1) * 2.0 / 3.0,
+            ),
+            end,
+        }
     }
 
     fn test_icon_candidate(
