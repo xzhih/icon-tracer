@@ -4532,9 +4532,11 @@ fn capsule_boundary_is_close(
     max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
 }
 
-fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
-    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
+// Pixel-traced capsules match Potrace more closely with slightly flatter arcs
+// than the mathematical circle kappa.
+const PIXEL_CAPSULE_ARC_KAPPA: f64 = 0.54;
 
+fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
     let center_y = (bounds.min_y + bounds.max_y) / 2.0;
     let left = (bounds.min_x, center_y);
     let top_left = (bounds.min_x + radius, bounds.min_y);
@@ -4542,7 +4544,7 @@ fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathS
     let right = (bounds.max_x, center_y);
     let bottom_right = (bounds.max_x - radius, bounds.max_y);
     let bottom_left = (bounds.min_x + radius, bounds.max_y);
-    let handle = radius * CIRCLE_ARC_KAPPA;
+    let handle = radius * PIXEL_CAPSULE_ARC_KAPPA;
 
     cubics_to_segments([
         CubicSegment {
@@ -4575,8 +4577,6 @@ fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathS
 }
 
 fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
-    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
-
     let center_x = (bounds.min_x + bounds.max_x) / 2.0;
     let top = (center_x, bounds.min_y);
     let right_top = (bounds.max_x, bounds.min_y + radius);
@@ -4584,7 +4584,7 @@ fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSeg
     let bottom = (center_x, bounds.max_y);
     let left_bottom = (bounds.min_x, bounds.max_y - radius);
     let left_top = (bounds.min_x, bounds.min_y + radius);
-    let handle = radius * CIRCLE_ARC_KAPPA;
+    let handle = radius * PIXEL_CAPSULE_ARC_KAPPA;
 
     cubics_to_segments([
         CubicSegment {
