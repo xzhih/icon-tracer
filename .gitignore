@@ -1,0 +1,21 @@
+# Rust build outputs
+/target/
+
+# Local Cargo configuration
+/.cargo/
+/scripts/cargo-external.sh
+
+# Agent and local development notes
+/docs/multi-agent-orchestration/
+
+# OS/editor/cache noise
+.DS_Store
+__pycache__/
+*.py[cod]
+.idea/
+.vscode/
+
+# Local environment files
+.env
+.env.*
+*.log

@@ -1,0 +1,192 @@
+{
+  "canvas": {
+    "height": 512,
+    "width": 512
+  },
+  "fixtures": [
+    {
+      "ae_pixels": 964,
+      "ae_ratio": 0.0036773681640625,
+      "cubic_segments": 0,
+      "diff_png": "target/vector-quality/diff-png/subpixel/square.png",
+      "line_segments": 8,
+      "mae": 0.00183678,
+      "mode": "subpixel",
+      "name": "square",
+      "rmse": 0.0334169,
+      "source_png": "target/vector-quality/source-png/square.png",
+      "source_svg": "target/vector-quality/source-svg/square.svg",
+      "svg_bytes": 242,
+      "traced_png": "target/vector-quality/traced-png/subpixel/square.png",
+      "traced_svg": "target/vector-quality/traced-svg/subpixel/square.svg"
+    },
+    {
+      "ae_pixels": 964,
+      "ae_ratio": 0.0036773681640625,
+      "cubic_segments": 0,
+      "diff_png": "target/vector-quality/diff-png/scalar/square.png",
+      "line_segments": 8,
+      "mae": 0.00183554,
+      "mode": "scalar",
+      "name": "square",
+      "rmse": 0.0338244,
+      "source_png": "target/vector-quality/source-png/square.png",
+      "source_svg": "target/vector-quality/source-svg/square.svg",
+      "svg_bytes": 310,
+      "traced_png": "target/vector-quality/traced-png/scalar/square.png",
+      "traced_svg": "target/vector-quality/traced-svg/scalar/square.svg"
+    },
+    {
+      "ae_pixels": 1360,
+      "ae_ratio": 0.00518798828125,
+      "cubic_segments": 72,
+      "diff_png": "target/vector-quality/diff-png/subpixel/circle.png",
+      "line_segments": 0,
+      "mae": 0.00164819,
+      "mode": "subpixel",
+      "name": "circle",
+      "rmse": 0.0308249,
+      "source_png": "target/vector-quality/source-png/circle.png",
+      "source_svg": "target/vector-quality/source-svg/circle.svg",
+      "svg_bytes": 3702,
+      "traced_png": "target/vector-quality/traced-png/subpixel/circle.png",
+      "traced_svg": "target/vector-quality/traced-svg/subpixel/circle.svg"
+    },
+    {
+      "ae_pixels": 1397,
+      "ae_ratio": 0.005329132080078125,
+      "cubic_segments": 12,
+      "diff_png": "target/vector-quality/diff-png/scalar/circle.png",
+      "line_segments": 0,
+      "mae": 0.00175492,
+      "mode": "scalar",
+      "name": "circle",
+      "rmse": 0.0317887,
+      "source_png": "target/vector-quality/source-png/circle.png",
+      "source_svg": "target/vector-quality/source-svg/circle.svg",
+      "svg_bytes": 941,
+      "traced_png": "target/vector-quality/traced-png/scalar/circle.png",
+      "traced_svg": "target/vector-quality/traced-svg/scalar/circle.svg"
+    },
+    {
+      "ae_pixels": 1277,
+      "ae_ratio": 0.004871368408203125,
+      "cubic_segments": 16,
+      "diff_png": "target/vector-quality/diff-png/subpixel/triangle.png",
+      "line_segments": 6,
+      "mae": 0.00172819,
+      "mode": "subpixel",
+      "name": "triangle",
+      "rmse": 0.0306624,
+      "source_png": "target/vector-quality/source-png/triangle.png",
+      "source_svg": "target/vector-quality/source-svg/triangle.svg",
+      "svg_bytes": 909,
+      "traced_png": "target/vector-quality/traced-png/subpixel/triangle.png",
+      "traced_svg": "target/vector-quality/traced-svg/subpixel/triangle.svg"
+    },
+    {
+      "ae_pixels": 1174,
+      "ae_ratio": 0.00447845458984375,
+      "cubic_segments": 0,
+      "diff_png": "target/vector-quality/diff-png/scalar/triangle.png",
+      "line_segments": 6,
+      "mae": 0.00140482,
+      "mode": "scalar",
+      "name": "triangle",
+      "rmse": 0.0265704,
+      "source_png": "target/vector-quality/source-png/triangle.png",
+      "source_svg": "target/vector-quality/source-svg/triangle.svg",
+      "svg_bytes": 254,
+      "traced_png": "target/vector-quality/traced-png/scalar/triangle.png",
+      "traced_svg": "target/vector-quality/traced-svg/scalar/triangle.svg"
+    },
+    {
+      "ae_pixels": 2423,
+      "ae_ratio": 0.009243011474609375,
+      "cubic_segments": 120,
+      "diff_png": "target/vector-quality/diff-png/subpixel/ring.png",
+      "line_segments": 0,
+      "mae": 0.00300755,
+      "mode": "subpixel",
+      "name": "ring",
+      "rmse": 0.0428001,
+      "source_png": "target/vector-quality/source-png/ring.png",
+      "source_svg": "target/vector-quality/source-svg/ring.svg",
+      "svg_bytes": 5581,
+      "traced_png": "target/vector-quality/traced-png/subpixel/ring.png",
+      "traced_svg": "target/vector-quality/traced-svg/subpixel/ring.svg"
+    },
+    {
+      "ae_pixels": 2402,
+      "ae_ratio": 0.00916290283203125,
+      "cubic_segments": 24,
+      "diff_png": "target/vector-quality/diff-png/scalar/ring.png",
+      "line_segments": 0,
+      "mae": 0.00298313,
+      "mode": "scalar",
+      "name": "ring",
+      "rmse": 0.0422358,
+      "source_png": "target/vector-quality/source-png/ring.png",
+      "source_svg": "target/vector-quality/source-svg/ring.svg",
+      "svg_bytes": 1722,
+      "traced_png": "target/vector-quality/traced-png/scalar/ring.png",
+      "traced_svg": "target/vector-quality/traced-svg/scalar/ring.svg"
+    },
+    {
+      "ae_pixels": 2016,
+      "ae_ratio": 0.0076904296875,
+      "cubic_segments": 90,
+      "diff_png": "target/vector-quality/diff-png/subpixel/open_arc.png",
+      "line_segments": 0,
+      "mae": 0.00255372,
+      "mode": "subpixel",
+      "name": "open_arc",
+      "rmse": 0.0393265,
+      "source_png": "target/vector-quality/source-png/open_arc.png",
+      "source_svg": "target/vector-quality/source-svg/open_arc.svg",
+      "svg_bytes": 4248,
+      "traced_png": "target/vector-quality/traced-png/subpixel/open_arc.png",
+      "traced_svg": "target/vector-quality/traced-svg/subpixel/open_arc.svg"
+    },
+    {
+      "ae_pixels": 2046,
+      "ae_ratio": 0.00780487060546875,
+      "cubic_segments": 30,
+      "diff_png": "target/vector-quality/diff-png/scalar/open_arc.png",
+      "line_segments": 0,
+      "mae": 0.00270147,
+      "mode": "scalar",
+      "name": "open_arc",
+      "rmse": 0.0411263,
+      "source_png": "target/vector-quality/source-png/open_arc.png",
+      "source_svg": "target/vector-quality/source-svg/open_arc.svg",
+      "svg_bytes": 2170,
+      "traced_png": "target/vector-quality/traced-png/scalar/open_arc.png",
+      "traced_svg": "target/vector-quality/traced-svg/scalar/open_arc.svg"
+    }
+  ],
+  "modes": [
+    {
+      "args": [
+        "--contour",
+        "subpixel",
+        "--curve",
+        "potrace",
+        "--opt-tolerance",
+        "0.75"
+      ],
+      "name": "subpixel"
+    },
+    {
+      "args": [
+        "--contour",
+        "scalar",
+        "--curve",
+        "potrace",
+        "--opt-tolerance",
+        "0.75"
+      ],
+      "name": "scalar"
+    }
+  ]
+}
