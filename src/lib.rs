@@ -2857,13 +2857,18 @@ fn path_to_potrace_svg_data(
     let vertices = adjust_potrace_vertices(&path.points, &polygon, max_vertex_adjustment);
     let (mut start, mut segments) = smooth_potrace_vertices(&vertices)?;
 
+    if pixel_potrace {
+        let (start, segments) = choose_pixel_potrace_segments(path, start, segments, opt_tolerance);
+        return Some(compact_svg_path_data_from_segments(start, &segments));
+    }
+
     if segments
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
         && path.points.len() >= 12
-        && (pixel_potrace || !points_are_half_pixel_quantized(&path.points))
+        && !points_are_half_pixel_quantized(&path.points)
     {
-        let fitted = fit_closed_smooth_potrace_segments(&path.points);
+        let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
         if let Some(first) = fitted.first() {
             start = first.start();
             segments = fitted;
@@ -2871,11 +2876,40 @@ fn path_to_potrace_svg_data(
     }
 
     let (start, segments) = optimize_potrace_segments(start, &segments, opt_tolerance);
-    Some(if pixel_potrace {
-        compact_svg_path_data_from_segments(start, &segments)
-    } else {
-        svg_path_data_from_segments(start, &segments)
-    })
+    Some(svg_path_data_from_segments(start, &segments))
+}
+
+fn choose_pixel_potrace_segments(
+    path: &TracePath,
+    start: (f64, f64),
+    segments: Vec<SvgPathSegment>,
+    opt_tolerance: f64,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
+    let mut best = optimize_potrace_segments(start, &segments, opt_tolerance);
+
+    if segments
+        .iter()
+        .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+        && path.points.len() >= 12
+    {
+        let fitted = fit_closed_smooth_potrace_segments(&path.points, true);
+        if let Some(first) = fitted.first() {
+            let candidate = optimize_potrace_segments(first.start(), &fitted, opt_tolerance);
+            if pixel_potrace_candidate_is_better(&candidate, &best) {
+                best = candidate;
+            }
+        }
+    }
+
+    best
+}
+
+fn pixel_potrace_candidate_is_better(
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
+        < compact_svg_path_data_from_segments(best.0, &best.1).len()
 }
 
 fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
@@ -4084,8 +4118,17 @@ fn cubic_run_fit_penalty(samples: &[(f64, f64)], cubic: CubicSegment) -> f64 {
         .sum()
 }
 
-fn fit_closed_smooth_potrace_segments(points: &[(f64, f64)]) -> Vec<SvgPathSegment> {
+fn fit_closed_smooth_potrace_segments(
+    points: &[(f64, f64)],
+    allow_ellipse_primitive: bool,
+) -> Vec<SvgPathSegment> {
     const SMOOTH_FIT_ERROR: f64 = 1.1;
+
+    if allow_ellipse_primitive {
+        if let Some(ellipse) = fit_closed_ellipse_potrace_segments(points) {
+            return ellipse;
+        }
+    }
 
     let breakpoints = even_fit_breakpoints(points.len());
     let mut segments = Vec::new();
@@ -4098,6 +4141,79 @@ fn fit_closed_smooth_potrace_segments(points: &[(f64, f64)]) -> Vec<SvgPathSegme
     }
 
     segments.into_iter().map(SvgPathSegment::Cubic).collect()
+}
+
+fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const MIN_AXIS: f64 = 8.0;
+    const MAX_RADIAL_ERROR: f64 = 0.075;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.03;
+    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let rx = (bounds.max_x - bounds.min_x) / 2.0;
+    let ry = (bounds.max_y - bounds.min_y) / 2.0;
+    if rx < MIN_AXIS || ry < MIN_AXIS {
+        return None;
+    }
+
+    let center = (
+        (bounds.min_x + bounds.max_x) / 2.0,
+        (bounds.min_y + bounds.max_y) / 2.0,
+    );
+    let mut max_error = 0.0_f64;
+    let mut total_error = 0.0_f64;
+
+    for point in points {
+        let nx = (point.0 - center.0) / rx;
+        let ny = (point.1 - center.1) / ry;
+        let error = ((nx * nx + ny * ny).sqrt() - 1.0).abs();
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    let mean_error = total_error / points.len() as f64;
+    if max_error > MAX_RADIAL_ERROR || mean_error > MAX_MEAN_RADIAL_ERROR {
+        return None;
+    }
+
+    let left = (center.0 - rx, center.1);
+    let top = (center.0, center.1 - ry);
+    let right = (center.0 + rx, center.1);
+    let bottom = (center.0, center.1 + ry);
+    let kx = rx * CIRCLE_ARC_KAPPA;
+    let ky = ry * CIRCLE_ARC_KAPPA;
+
+    Some(
+        [
+            CubicSegment {
+                start: left,
+                control1: (left.0, left.1 - ky),
+                control2: (top.0 - kx, top.1),
+                end: top,
+            },
+            CubicSegment {
+                start: top,
+                control1: (top.0 + kx, top.1),
+                control2: (right.0, right.1 - ky),
+                end: right,
+            },
+            CubicSegment {
+                start: right,
+                control1: (right.0, right.1 + ky),
+                control2: (bottom.0 + kx, bottom.1),
+                end: bottom,
+            },
+            CubicSegment {
+                start: bottom,
+                control1: (bottom.0 - kx, bottom.1),
+                control2: (left.0, left.1 + ky),
+                end: left,
+            },
+        ]
+        .into_iter()
+        .map(SvgPathSegment::Cubic)
+        .collect(),
+    )
 }
 
 fn points_are_half_pixel_quantized(points: &[(f64, f64)]) -> bool {
@@ -5787,6 +5903,24 @@ mod tests {
         let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
 
         assert_eq!(data, "M 1000 1000 L 0 0 C 0 0, 0 0, 0 0 Z");
+    }
+
+    #[test]
+    fn closed_ellipse_potrace_fit_uses_four_cubics() {
+        let points = (0..64)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 64.0;
+                (40.0 + angle.cos() * 20.0, 30.0 + angle.sin() * 12.0)
+            })
+            .collect::<Vec<_>>();
+
+        let segments = fit_closed_ellipse_potrace_segments(&points)
+            .expect("ellipse-like points should fit the primitive");
+
+        assert_eq!(segments.len(), 4);
+        assert!(segments
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
     }
 
     #[test]
