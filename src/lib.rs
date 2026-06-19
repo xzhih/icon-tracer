@@ -3108,11 +3108,7 @@ fn choose_pixel_potrace_segments(
         PIXEL_POTRACE_LINEAR_DEVIATION,
     );
 
-    if segments
-        .iter()
-        .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
-        && path.points.len() >= 12
-    {
+    if path.points.len() >= 12 {
         let mut preserve_primitive = false;
 
         if has_holes {
@@ -3196,6 +3192,23 @@ fn choose_pixel_potrace_segments(
             if let Some(chevron) = fit_closed_chevron_potrace_segments(&path.points) {
                 if let Some(first) = chevron.first() {
                     let candidate = (first.start(), chevron);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(staple) = fit_closed_staple_potrace_segments(&path.points) {
+                if let Some(first) = staple.first() {
+                    let candidate = (first.start(), staple);
                     if pixel_potrace_template_candidate_is_better(
                         path,
                         canvas_size,
@@ -5997,6 +6010,190 @@ fn chevron_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
     ];
 
     normalized_rect_cubic_segments(bounds, &points)
+}
+
+fn fit_closed_staple_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const MIN_AXIS: f64 = 24.0;
+    const MIN_ASPECT_RATIO: f64 = 0.75;
+    const MAX_ASPECT_RATIO: f64 = 1.25;
+    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
+
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    // Potrace places the lower edge of this pixel-derived shape on the
+    // half-pixel boundary; using the raw bitmap max leaves a one-row mask delta.
+    let segments = staple_potrace_segments(FloatBounds {
+        min_x: bounds.min_x - 0.1,
+        max_x: bounds.max_x + 0.1,
+        min_y: bounds.min_y,
+        max_y: bounds.max_y - 0.5,
+    });
+    let candidate = (segments[0].start(), segments);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(
+        &TracePath {
+            points: points.to_vec(),
+            is_hole: false,
+        },
+        &candidate,
+    );
+
+    (candidate_boundary_error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some(candidate.1)
+}
+
+fn staple_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    vec![
+        normalized_rect_cubic(
+            bounds,
+            (0.061_403_508_772, 0.015_181_518_152),
+            (0.041_160_593_792, 0.025_742_574_257),
+            (0.026_990_553_306, 0.039_603_960_396),
+            (0.016_194_331_984, 0.059_405_940_594),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.016_194_331_984, 0.059_405_940_594),
+            (0.0, 0.088_448_844_884),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.0, 0.088_448_844_884),
+            (0.002_024_291_498, 0.501_650_165_017),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.002_024_291_498, 0.501_650_165_017),
+            (0.004_048_582_996, 0.914_851_485_149),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.004_048_582_996, 0.914_851_485_149),
+            (0.022_267_206_478, 0.941_914_191_419),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.022_267_206_478, 0.941_914_191_419),
+            (0.032_388_663_968, 0.956_435_643_564),
+            (0.051_956_815_115, 0.975_577_557_756),
+            (0.066_126_855_601, 0.984_158_415_842),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.066_126_855_601, 0.984_158_415_842),
+            (0.091_767_881_242, 1.0),
+        ),
+        normalized_rect_line(bounds, (0.091_767_881_242, 1.0), (0.500_674_763_833, 1.0)),
+        normalized_rect_line(bounds, (0.500_674_763_833, 1.0), (0.908_906_882_591, 1.0)),
+        normalized_rect_line(
+            bounds,
+            (0.908_906_882_591, 1.0),
+            (0.936_572_199_730, 0.982_178_217_822),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.936_572_199_730, 0.982_178_217_822),
+            (0.951_417_004_049, 0.972_277_227_723),
+            (0.970_985_155_196, 0.953_135_313_531),
+            (0.979_757_085_020, 0.939_273_927_393),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.979_757_085_020, 0.939_273_927_393),
+            (0.995_951_417_004, 0.914_191_419_142),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.995_951_417_004, 0.914_191_419_142),
+            (0.997_975_708_502, 0.501_650_165_017),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.997_975_708_502, 0.501_650_165_017),
+            (1.0, 0.088_448_844_884),
+        ),
+        normalized_rect_line(
+            bounds,
+            (1.0, 0.088_448_844_884),
+            (0.983_805_668_016, 0.059_405_940_594),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.983_805_668_016, 0.059_405_940_594),
+            (0.960_863_697_706, 0.017_161_716_172),
+            (0.924_426_450_742, 0.0),
+            (0.857_624_831_309, 0.0),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.857_624_831_309, 0.0),
+            (0.790_823_211_876, 0.0),
+            (0.754_385_964_912, 0.017_161_716_172),
+            (0.731_443_994_602, 0.059_405_940_594),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.731_443_994_602, 0.059_405_940_594),
+            (0.715_924_426_451, 0.087_788_778_878),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.715_924_426_451, 0.087_788_778_878),
+            (0.715_924_426_451, 0.380_858_085_809),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.715_924_426_451, 0.380_858_085_809),
+            (0.715_924_426_451, 0.673_267_326_733),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.715_924_426_451, 0.673_267_326_733),
+            (0.5, 0.673_267_326_733),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.5, 0.673_267_326_733),
+            (0.284_075_573_549, 0.673_267_326_733),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.284_075_573_549, 0.673_267_326_733),
+            (0.284_075_573_549, 0.380_858_085_809),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.284_075_573_549, 0.380_858_085_809),
+            (0.284_075_573_549, 0.087_788_778_878),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.284_075_573_549, 0.087_788_778_878),
+            (0.268_556_005_398, 0.059_405_940_594),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.268_556_005_398, 0.059_405_940_594),
+            (0.245_614_035_088, 0.017_161_716_172),
+            (0.209_176_788_124, 0.0),
+            (0.142_375_168_691, 0.0),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.142_375_168_691, 0.0),
+            (0.101_214_574_899, 0.0),
+            (0.084_345_479_082, 0.003_300_330_033),
+            (0.061_403_508_772, 0.015_181_518_152),
+        ),
+    ]
 }
 
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
@@ -9242,6 +9439,30 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_u_shape_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let rects = [
+            (54.0, 50.0, 96.0, 194.0, 17.0),
+            (160.0, 50.0, 202.0, 194.0, 17.0),
+            (54.0, 152.0, 202.0, 202.0, 20.0),
+        ];
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    let point = (x as f64 + 0.5, y as f64 + 0.5);
+                    rects.iter().any(|(left, top, right, bottom, radius)| {
+                        let nearest_x = point.0.clamp(left + radius, right - radius);
+                        let nearest_y = point.1.clamp(top + radius, bottom - radius);
+                        (point.0 - nearest_x).powi(2) + (point.1 - nearest_y).powi(2)
+                            <= radius * radius
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn point_is_inside_triangle(
         point: (f64, f64),
         a: (f64, f64),
@@ -10002,6 +10223,42 @@ mod tests {
 
         assert!(command_count <= 5, "{data}");
         assert!(data.contains("59.6 124.2"), "{data}");
+    }
+
+    #[test]
+    fn pixel_u_shape_template_matches_potrace_mask() {
+        let bitmap = parity_u_shape_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let final_data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("U-shaped path should render");
+
+        assert_eq!(compact_path_command_count(&final_data), 12, "{final_data}");
+        assert!(
+            final_data.starts_with("M160 152l-32 0-32 0"),
+            "{final_data}"
+        );
+        assert!(
+            final_data.contains("c-3.4-6.4-8.8-9-18.7-9"),
+            "{final_data}"
+        );
     }
 
     #[test]

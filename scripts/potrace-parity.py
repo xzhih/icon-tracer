@@ -110,6 +110,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 29,
         "icon_d_bytes": 198,
     },
+    "u_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 27,
+        "icon_svg_point_count": 39,
+        "icon_d_bytes": 248,
+    },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
@@ -182,6 +188,7 @@ def fixtures() -> list[Fixture]:
         Fixture("angled_v", shape_angled_v()),
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
         Fixture("rounded_rect_r32", shape_rounded_rect(32.0)),
+        Fixture("u_shape", shape_u()),
     ]
 
 
@@ -251,6 +258,26 @@ def shape_rounded_rect(radius: float) -> list[bool]:
         nearest_x = min(max(px, left + radius), right - radius)
         nearest_y = min(max(py, top + radius), bottom - radius)
         return (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius
+
+    return fill(inside)
+
+
+def shape_u() -> list[bool]:
+    rects = [
+        (54.0, 50.0, 96.0, 194.0, 17.0),
+        (160.0, 50.0, 202.0, 194.0, 17.0),
+        (54.0, 152.0, 202.0, 202.0, 20.0),
+    ]
+
+    def inside(x: int, y: int) -> bool:
+        px = x + 0.5
+        py = y + 0.5
+        for left, top, right, bottom, radius in rects:
+            nearest_x = min(max(px, left + radius), right - radius)
+            nearest_y = min(max(py, top + radius), bottom - radius)
+            if (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius:
+                return True
+        return False
 
     return fill(inside)
 
