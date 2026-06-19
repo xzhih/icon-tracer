@@ -5343,7 +5343,7 @@ fn format_float(value: f64) -> String {
 }
 
 fn format_compact_float(value: f64) -> String {
-    format_float_with_precision(value, 3)
+    format_float_with_precision(value, 2)
 }
 
 fn format_float_with_precision(value: f64, precision: usize) -> String {
@@ -6091,7 +6091,7 @@ mod tests {
 
         let data = compact_svg_path_data_from_segments((10.12345, 20.98765), &segments);
 
-        assert_eq!(data, "M 10.123 20.988 l 1.432 1.457 Z");
+        assert_eq!(data, "M 10.12 20.99 l 1.43 1.46 Z");
     }
 
     #[test]
