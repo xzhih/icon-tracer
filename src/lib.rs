@@ -4136,6 +4136,10 @@ fn opticurve_edge(
         return None;
     }
 
+    if let Some(edge) = potrace_area_opticurve_edge(run, start, end, opt_tolerance) {
+        return Some(edge);
+    }
+
     let samples = sample_cubic_run(&run[start..end]);
     let mut fitted = Vec::new();
     fit_open_cubic_segments_raw(&samples, opt_tolerance * opt_tolerance, &mut fitted);
@@ -4177,6 +4181,267 @@ fn cubic_run_fit_penalty(samples: &[(f64, f64)], cubic: CubicSegment) -> f64 {
         .iter()
         .map(|sample| distance_squared_to_cubic_segments(*sample, &[cubic]))
         .sum()
+}
+
+struct ReconstructedPotraceRun {
+    vertices: Vec<(f64, f64)>,
+    alphas: Vec<f64>,
+}
+
+impl ReconstructedPotraceRun {
+    fn from_cubics(run: &[CubicSegment]) -> Option<Self> {
+        let mut vertices = Vec::with_capacity(run.len());
+        let mut alphas = Vec::with_capacity(run.len());
+
+        for cubic in run {
+            let vertex = potrace_cubic_vertex(*cubic)?;
+            let alpha = potrace_cubic_alpha(*cubic, vertex)?;
+            vertices.push(vertex);
+            alphas.push(alpha);
+        }
+
+        Some(Self { vertices, alphas })
+    }
+}
+
+fn potrace_area_opticurve_edge(
+    run: &[CubicSegment],
+    start: usize,
+    end: usize,
+    opt_tolerance: f64,
+) -> Option<OpticurveEdge> {
+    if end <= start + 1 {
+        return None;
+    }
+
+    let reconstructed = ReconstructedPotraceRun::from_cubics(run)?;
+    let p0 = run[start].start;
+    let p1 = reconstructed.vertices[start];
+    let p2 = reconstructed.vertices[end - 1];
+    let p3 = run[end - 1].end;
+    let area = reconstructed_potrace_curve_area(&reconstructed, run, start, end);
+    let a1 = signed_area_twice(p0, p1, p2);
+    let a2 = signed_area_twice(p0, p1, p3);
+    let a3 = signed_area_twice(p0, p2, p3);
+    let a4 = a1 + a3 - a2;
+    let t_denominator = a3 - a4;
+    let s_denominator = a2 - a1;
+    if t_denominator.abs() <= f64::EPSILON || s_denominator.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let t = a3 / t_denominator;
+    let s = a2 / s_denominator;
+    let triangle_area = a2 * t / 2.0;
+    if triangle_area.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let radicand = 4.0 - area / triangle_area / 0.3;
+    if radicand < 0.0 {
+        return None;
+    }
+
+    let alpha = 2.0 - radicand.sqrt();
+    if !alpha.is_finite() {
+        return None;
+    }
+
+    let candidate = CubicSegment {
+        start: p0,
+        control1: interpolate(p0, p1, t * alpha),
+        control2: interpolate(p3, p2, s * alpha),
+        end: p3,
+    };
+    let penalty =
+        potrace_area_opticurve_penalty(&reconstructed, run, start, end, candidate, opt_tolerance)?;
+
+    Some(OpticurveEdge {
+        cubic: candidate,
+        penalty,
+    })
+}
+
+fn reconstructed_potrace_curve_area(
+    reconstructed: &ReconstructedPotraceRun,
+    run: &[CubicSegment],
+    start: usize,
+    end: usize,
+) -> f64 {
+    let reference = reconstructed.vertices[0];
+    let edge_start = run[start].start;
+    let edge_end = run[end - 1].end;
+    let mut area = 0.0;
+
+    for index in start..end {
+        let previous_end = if index == start {
+            edge_start
+        } else {
+            run[index - 1].end
+        };
+        let end_point = run[index].end;
+        let vertex = reconstructed.vertices[index];
+        let alpha = reconstructed.alphas[index];
+        area +=
+            0.3 * alpha * (4.0 - alpha) * signed_area_twice(previous_end, vertex, end_point) / 2.0;
+        area += signed_area_twice(reference, previous_end, end_point) / 2.0;
+    }
+
+    area - signed_area_twice(reference, edge_start, edge_end) / 2.0
+}
+
+fn potrace_area_opticurve_penalty(
+    reconstructed: &ReconstructedPotraceRun,
+    run: &[CubicSegment],
+    start: usize,
+    end: usize,
+    candidate: CubicSegment,
+    opt_tolerance: f64,
+) -> Option<f64> {
+    let mut penalty = 0.0;
+
+    for index in start..end - 1 {
+        let from = reconstructed.vertices[index];
+        let to = reconstructed.vertices[index + 1];
+        let parameter = bezier_tangent_parameter(candidate, from, to)?;
+        let point = cubic_point(candidate, parameter);
+        let length = distance(from, to);
+        if length <= f64::EPSILON {
+            return None;
+        }
+
+        let signed_distance = signed_area_twice(from, to, point) / length;
+        if signed_distance.abs() > opt_tolerance {
+            return None;
+        }
+        if dot(subtract(to, from), subtract(point, from)) < 0.0
+            || dot(subtract(from, to), subtract(point, to)) < 0.0
+        {
+            return None;
+        }
+
+        penalty += signed_distance * signed_distance;
+    }
+
+    let edge_start = run[start].start;
+    for index in start..end {
+        let previous_end = if index == start {
+            edge_start
+        } else {
+            run[index - 1].end
+        };
+        let end_point = run[index].end;
+        let parameter = bezier_tangent_parameter(candidate, previous_end, end_point)?;
+        let point = cubic_point(candidate, parameter);
+        let length = distance(previous_end, end_point);
+        if length <= f64::EPSILON {
+            return None;
+        }
+
+        let mut signed_distance = signed_area_twice(previous_end, end_point, point) / length;
+        let mut corner_distance =
+            signed_area_twice(previous_end, end_point, reconstructed.vertices[index]) / length;
+        corner_distance *= 0.75 * reconstructed.alphas[index];
+        if corner_distance < 0.0 {
+            signed_distance = -signed_distance;
+            corner_distance = -corner_distance;
+        }
+
+        if signed_distance < corner_distance - opt_tolerance {
+            return None;
+        }
+        if signed_distance < corner_distance {
+            let delta = signed_distance - corner_distance;
+            penalty += delta * delta;
+        }
+    }
+
+    Some(penalty)
+}
+
+fn potrace_cubic_vertex(cubic: CubicSegment) -> Option<(f64, f64)> {
+    let incoming = subtract(cubic.control1, cubic.start);
+    let outgoing = subtract(cubic.control2, cubic.end);
+    if vector_length_squared(incoming) <= f64::EPSILON
+        || vector_length_squared(outgoing) <= f64::EPSILON
+    {
+        return None;
+    }
+
+    line_intersection(
+        FitLine {
+            point: cubic.start,
+            direction: incoming,
+        },
+        FitLine {
+            point: cubic.end,
+            direction: outgoing,
+        },
+    )
+}
+
+fn potrace_cubic_alpha(cubic: CubicSegment, vertex: (f64, f64)) -> Option<f64> {
+    let entry_alpha = projected_fraction(cubic.start, vertex, cubic.control1)?;
+    let exit_alpha = projected_fraction(cubic.end, vertex, cubic.control2)?;
+    let alpha = (entry_alpha + exit_alpha) / 2.0;
+
+    (alpha.is_finite() && alpha > 0.0 && alpha <= 2.0).then_some(alpha)
+}
+
+fn projected_fraction(start: (f64, f64), end: (f64, f64), point: (f64, f64)) -> Option<f64> {
+    let vector = subtract(end, start);
+    let length_squared = vector_length_squared(vector);
+    if length_squared <= f64::EPSILON {
+        return None;
+    }
+
+    Some(dot(subtract(point, start), vector) / length_squared)
+}
+
+fn bezier_tangent_parameter(
+    cubic: CubicSegment,
+    line_start: (f64, f64),
+    line_end: (f64, f64),
+) -> Option<f64> {
+    let a = cross_lines(cubic.start, cubic.control1, line_start, line_end);
+    let b = cross_lines(cubic.control1, cubic.control2, line_start, line_end);
+    let c = cross_lines(cubic.control2, cubic.end, line_start, line_end);
+    let quadratic_a = a - 2.0 * b + c;
+    let quadratic_b = -2.0 * a + 2.0 * b;
+    let quadratic_c = a;
+    let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
+
+    if quadratic_a.abs() <= f64::EPSILON || discriminant < 0.0 {
+        return None;
+    }
+
+    let root = discriminant.sqrt();
+    let first = (-quadratic_b + root) / (2.0 * quadratic_a);
+    let second = (-quadratic_b - root) / (2.0 * quadratic_a);
+
+    if (0.0..=1.0).contains(&first) {
+        Some(first)
+    } else if (0.0..=1.0).contains(&second) {
+        Some(second)
+    } else {
+        None
+    }
+}
+
+fn cross_lines(
+    first_start: (f64, f64),
+    first_end: (f64, f64),
+    second_start: (f64, f64),
+    second_end: (f64, f64),
+) -> f64 {
+    cross(
+        subtract(first_end, first_start),
+        subtract(second_end, second_start),
+    )
+}
+
+fn signed_area_twice(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    cross(subtract(b, a), subtract(c, a))
 }
 
 fn fit_closed_smooth_potrace_segments(
