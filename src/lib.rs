@@ -2871,7 +2871,11 @@ fn path_to_potrace_svg_data(
     }
 
     let (start, segments) = optimize_potrace_segments(start, &segments, opt_tolerance);
-    Some(svg_path_data_from_segments(start, &segments))
+    Some(if pixel_potrace {
+        compact_svg_path_data_from_segments(start, &segments)
+    } else {
+        svg_path_data_from_segments(start, &segments)
+    })
 }
 
 fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
@@ -4189,6 +4193,43 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
             SvgPathSegment::Cubic(cubic) => {
                 data.push_str(&format!(
                     " C {} {}, {} {}, {} {}",
+                    format_float(cubic.control1.0),
+                    format_float(cubic.control1.1),
+                    format_float(cubic.control2.0),
+                    format_float(cubic.control2.1),
+                    format_float(cubic.end.0),
+                    format_float(cubic.end.1)
+                ));
+            }
+        }
+    }
+
+    data.push_str(" Z");
+    data
+}
+
+fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
+    let mut data = format!("M {} {}", format_float(start.0), format_float(start.1));
+    let mut previous_command: Option<char> = None;
+
+    for segment in segments {
+        match segment {
+            SvgPathSegment::Line { end, .. } => {
+                if previous_command != Some('L') {
+                    data.push_str(" L");
+                    previous_command = Some('L');
+                }
+
+                data.push_str(&format!(" {} {}", format_float(end.0), format_float(end.1)));
+            }
+            SvgPathSegment::Cubic(cubic) => {
+                if previous_command != Some('C') {
+                    data.push_str(" C");
+                    previous_command = Some('C');
+                }
+
+                data.push_str(&format!(
+                    " {} {}, {} {}, {} {}",
                     format_float(cubic.control1.0),
                     format_float(cubic.control1.1),
                     format_float(cubic.control2.0),
