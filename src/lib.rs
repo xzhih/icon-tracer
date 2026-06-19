@@ -933,7 +933,7 @@ impl TracedBitmap {
         let path_data = self
             .paths
             .iter()
-            .filter_map(|path| path_to_svg_data(path, options))
+            .filter_map(|path| path_to_svg_data(path, options, Some((self.width, self.height))))
             .collect::<Vec<_>>()
             .join(" ");
         let path = svg_path_element(&path_data, options.pixel_potrace);
@@ -1526,7 +1526,7 @@ fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize
     traced
         .paths
         .iter()
-        .filter_map(|path| path_to_svg_data(path, options))
+        .filter_map(|path| path_to_svg_data(path, options, None))
         .map(|path_data| {
             path_data
                 .split_whitespace()
@@ -2729,15 +2729,22 @@ fn is_below_turd_size_float(area: f64, turd_size: usize) -> bool {
     turd_size != 0 && area.abs() <= turd_size as f64
 }
 
-fn path_to_svg_data(path: &TracePath, options: SvgRenderOptions) -> Option<String> {
+fn path_to_svg_data(
+    path: &TracePath,
+    options: SvgRenderOptions,
+    canvas_size: Option<(usize, usize)>,
+) -> Option<String> {
     match options.curve_mode {
         CurveMode::Polygon => path_to_polygon_svg_data(path),
         CurveMode::Smooth => path_to_smooth_svg_data(path),
         CurveMode::Spline => path_to_spline_svg_data(path),
         CurveMode::Fit => path_to_fit_svg_data(path),
-        CurveMode::Potrace => {
-            path_to_potrace_svg_data(path, options.opt_tolerance.max(0.0), options.pixel_potrace)
-        }
+        CurveMode::Potrace => path_to_potrace_svg_data(
+            path,
+            options.opt_tolerance.max(0.0),
+            options.pixel_potrace,
+            canvas_size,
+        ),
     }
 }
 
@@ -2864,6 +2871,7 @@ fn path_to_potrace_svg_data(
     path: &TracePath,
     opt_tolerance: f64,
     pixel_potrace: bool,
+    canvas_size: Option<(usize, usize)>,
 ) -> Option<String> {
     if path.points.len() < 3 {
         return path_to_polygon_svg_data(path);
@@ -2879,7 +2887,8 @@ fn path_to_potrace_svg_data(
     let (mut start, mut segments) = smooth_potrace_vertices(&vertices)?;
 
     if pixel_potrace {
-        let (start, segments) = choose_pixel_potrace_segments(path, start, segments, opt_tolerance);
+        let (start, segments) =
+            choose_pixel_potrace_segments(path, start, segments, opt_tolerance, canvas_size);
         return Some(compact_svg_path_data_from_segments(start, &segments));
     }
 
@@ -2905,6 +2914,7 @@ fn choose_pixel_potrace_segments(
     start: (f64, f64),
     segments: Vec<SvgPathSegment>,
     opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     let mut best = optimize_potrace_segments(start, &segments, opt_tolerance);
 
@@ -2916,7 +2926,7 @@ fn choose_pixel_potrace_segments(
         let fitted = fit_closed_smooth_potrace_segments(&path.points, true);
         if let Some(first) = fitted.first() {
             let candidate = optimize_potrace_segments(first.start(), &fitted, opt_tolerance);
-            if pixel_potrace_candidate_is_better(&candidate, &best) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
                 best = candidate;
             }
         }
@@ -2926,11 +2936,69 @@ fn choose_pixel_potrace_segments(
 }
 
 fn pixel_potrace_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
+    if let Some((width, height)) = canvas_size {
+        let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+        let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+
+        return candidate_error < best_error
+            || (candidate_error == best_error
+                && compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
+                    < compact_svg_path_data_from_segments(best.0, &best.1).len());
+    }
+
     compact_svg_path_data_from_segments(candidate.0, &candidate.1).len()
         < compact_svg_path_data_from_segments(best.0, &best.1).len()
+}
+
+fn pixel_potrace_candidate_mask_error(
+    path: &TracePath,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    width: usize,
+    height: usize,
+) -> usize {
+    let mut reference = vec![false; width.saturating_mul(height)];
+    let mut candidate_pixels = vec![false; width.saturating_mul(height)];
+    rasterize_path_evenodd(path, width, height, &mut reference);
+
+    let candidate_path = TracePath {
+        is_hole: path.is_hole,
+        points: flattened_potrace_segments(candidate.0, &candidate.1),
+    };
+    rasterize_path_evenodd(&candidate_path, width, height, &mut candidate_pixels);
+
+    reference
+        .iter()
+        .zip(candidate_pixels.iter())
+        .filter(|(left, right)| left != right)
+        .count()
+}
+
+fn flattened_potrace_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> Vec<(f64, f64)> {
+    const CUBIC_FLATTEN_STEPS: usize = 64;
+
+    let mut points = Vec::new();
+    points.push(start);
+
+    for segment in segments {
+        match segment {
+            SvgPathSegment::Line { end, .. } => points.push(*end),
+            SvgPathSegment::Cubic(cubic) => {
+                for step in 1..=CUBIC_FLATTEN_STEPS {
+                    points.push(cubic_point(
+                        *cubic,
+                        step as f64 / CUBIC_FLATTEN_STEPS as f64,
+                    ));
+                }
+            }
+        }
+    }
+
+    dedup_nearby_points(points)
 }
 
 fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
@@ -4901,6 +4969,7 @@ fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSeg
 }
 
 fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
+    let segments = compact_segments_without_redundant_closing_line(start, segments);
     let absolute = minify_compact_svg_path_data(&compact_absolute_svg_path_data_from_segments(
         start, segments,
     ));
@@ -4926,6 +4995,28 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     }
 
     best
+}
+
+fn compact_segments_without_redundant_closing_line(
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+) -> &[SvgPathSegment] {
+    let Some(SvgPathSegment::Line {
+        start: line_start,
+        end,
+    }) = segments.last()
+    else {
+        return segments;
+    };
+
+    if segments.len() > 1
+        && distance_squared_float(*end, start) <= 1.0e-9
+        && distance_squared_float(segments[segments.len() - 2].end(), *line_start) <= 1.0e-9
+    {
+        &segments[..segments.len() - 1]
+    } else {
+        segments
+    }
 }
 
 fn compact_segments_are_closed(start: (f64, f64), segments: &[SvgPathSegment]) -> bool {
@@ -6887,6 +6978,32 @@ mod tests {
     }
 
     #[test]
+    fn compact_path_data_omits_redundant_closing_line() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (10.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 0.0),
+                end: (10.0, 10.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 10.0),
+                end: (0.0, 10.0),
+            },
+            SvgPathSegment::Line {
+                start: (0.0, 10.0),
+                end: (0.0, 0.0),
+            },
+        ];
+
+        let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
+
+        assert_eq!(data, "M0 0l10 0 0 10-10 0Z");
+    }
+
+    #[test]
     fn compact_path_data_rotates_closed_segments_to_shorter_start() {
         let segments = vec![
             SvgPathSegment::Line {
@@ -6953,6 +7070,65 @@ mod tests {
         assert!(diagonal_path.contains(r#"transform="scale(.01)""#));
         assert!(diagonal_path.len() < svg_path_element(diagonal, false).len());
         assert!(!square_path.contains("transform="), "{square_path}");
+    }
+
+    #[test]
+    fn pixel_potrace_candidate_selection_rejects_shorter_mask_regression() {
+        let path = TracePath {
+            is_hole: false,
+            points: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        };
+        let best = (
+            (0.0, 0.0),
+            vec![
+                SvgPathSegment::Line {
+                    start: (0.0, 0.0),
+                    end: (10.0, 0.0),
+                },
+                SvgPathSegment::Line {
+                    start: (10.0, 0.0),
+                    end: (10.0, 10.0),
+                },
+                SvgPathSegment::Line {
+                    start: (10.0, 10.0),
+                    end: (0.0, 10.0),
+                },
+                SvgPathSegment::Line {
+                    start: (0.0, 10.0),
+                    end: (0.0, 0.0),
+                },
+            ],
+        );
+        let shorter_wrong = (
+            (0.0, 0.0),
+            vec![
+                SvgPathSegment::Line {
+                    start: (0.0, 0.0),
+                    end: (10.0, 0.0),
+                },
+                SvgPathSegment::Line {
+                    start: (10.0, 0.0),
+                    end: (0.0, 10.0),
+                },
+                SvgPathSegment::Line {
+                    start: (0.0, 10.0),
+                    end: (0.0, 0.0),
+                },
+            ],
+        );
+
+        assert!(pixel_potrace_candidate_is_better(
+            &path,
+            None,
+            &shorter_wrong,
+            &best
+        ));
+        assert!(!pixel_potrace_candidate_is_better(
+            &path,
+            Some((12, 12)),
+            &shorter_wrong,
+            &best
+        ));
     }
 
     #[test]
