@@ -10,6 +10,7 @@ mod staple;
 mod stepped_e;
 mod stepped_f;
 mod t_shape;
+mod transform;
 
 pub(crate) use chevron::*;
 pub(crate) use h_shape::*;
@@ -21,3 +22,5 @@ pub(crate) use staple::*;
 pub(crate) use stepped_e::*;
 pub(crate) use stepped_f::*;
 pub(crate) use t_shape::*;
+
+use transform::*;

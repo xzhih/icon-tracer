@@ -1,5 +1,29 @@
 use super::*;
 
+fn mirror_bitmap_x(bitmap: &Bitmap) -> Bitmap {
+    let width = bitmap.width();
+    let height = bitmap.height();
+    let pixels = (0..height)
+        .flat_map(|y| (0..width).map(move |x| bitmap.is_black(width - 1 - x, y)))
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(width, height, &pixels).expect("mirrored fixture pixels should match canvas")
+}
+
+fn rotate_bitmap_clockwise(bitmap: &Bitmap) -> Bitmap {
+    let width = bitmap.width();
+    let height = bitmap.height();
+    assert_eq!(
+        width, height,
+        "test rotation helper currently expects square fixtures"
+    );
+    let pixels = (0..height)
+        .flat_map(|y| (0..width).map(move |x| bitmap.is_black(y, height - 1 - x)))
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(width, height, &pixels).expect("rotated fixture pixels should match canvas")
+}
+
 #[test]
 fn closed_ellipse_potrace_fit_uses_five_cubics() {
     let points = (0..64)
@@ -296,6 +320,25 @@ fn pixel_l_shape_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_l_shape_template_accepts_mirrored_orientation() {
+    let bitmap = mirror_bitmap_x(&parity_l_shape_bitmap());
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let segments = fit_closed_l_potrace_segments(&path.points)
+        .expect("mirrored L shape should fit the transformed Potrace template");
+
+    assert_eq!(segments.len(), 14);
+}
+
+#[test]
 fn pixel_t_shape_uses_potrace_template() {
     let bitmap = parity_t_shape_bitmap();
     let traced = trace_bitmap(
@@ -317,6 +360,25 @@ fn pixel_t_shape_uses_potrace_template() {
     assert!(svg.contains("M1060 1600l0-467"), "{svg}");
     assert!(svg.contains("s167 30 201 105"), "{svg}");
     assert!(svg.contains("c-37 17-78 19-595 19"), "{svg}");
+}
+
+#[test]
+fn pixel_t_shape_template_accepts_rotated_orientation() {
+    let bitmap = rotate_bitmap_clockwise(&parity_t_shape_bitmap());
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let segments = fit_closed_t_potrace_segments(&path.points)
+        .expect("rotated T shape should fit the transformed Potrace template");
+
+    assert_eq!(segments.len(), 16);
 }
 
 #[test]

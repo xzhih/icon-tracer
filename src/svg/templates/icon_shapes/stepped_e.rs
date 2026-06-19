@@ -8,29 +8,15 @@ pub(crate) fn fit_closed_stepped_e_potrace_segments(
     const MAX_ASPECT_RATIO: f64 = 1.25;
     const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;
 
-    let bounds = FloatBounds::from_points(points)?;
-    let width = bounds.max_x - bounds.min_x;
-    let height = bounds.max_y - bounds.min_y;
-    if width < MIN_AXIS || height < MIN_AXIS {
-        return None;
-    }
-
-    let aspect = width / height;
-    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
-        return None;
-    }
-
-    let segments = stepped_e_potrace_segments(bounds);
-    let candidate = (segments[0].start(), segments);
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(
-        &TracePath {
-            points: points.to_vec(),
-            is_hole: false,
-        },
-        &candidate,
-    );
-
-    (candidate_boundary_error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some(candidate.1)
+    fit_closed_template_variants(
+        points,
+        MIN_AXIS,
+        MIN_ASPECT_RATIO,
+        MAX_ASPECT_RATIO,
+        MAX_TEMPLATE_BOUNDARY_ERROR,
+        stepped_e_potrace_segments,
+        &ORTHOGONAL_TEMPLATE_TRANSFORMS,
+    )
 }
 
 pub(crate) fn stepped_e_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
