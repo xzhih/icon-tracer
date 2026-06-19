@@ -86,6 +86,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 19,
         "icon_d_bytes": 143,
     },
+    "double_pill": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 22,
+        "icon_svg_point_count": 38,
+        "icon_d_bytes": 259,
+    },
     "diagonal_bar": {
         "mask_ae_pixels": 0,
         "icon_command_count": 10,
@@ -202,6 +208,7 @@ def fixtures() -> list[Fixture]:
         Fixture("ring", shape_ring()),
         Fixture("triangle", shape_triangle()),
         Fixture("roundbar", shape_roundbar()),
+        Fixture("double_pill", shape_double_pill()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
         Fixture("angled_v", shape_angled_v()),
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
@@ -268,6 +275,15 @@ def shape_roundbar() -> list[bool]:
         ) or (px - nearest_x) ** 2 + (py - nearest_y) ** 2 <= radius * radius
 
     return fill(inside)
+
+
+def shape_double_pill() -> list[bool]:
+    return rounded_rect_union(
+        [
+            (44.0, 76.0, 212.0, 116.0, 20.0),
+            (44.0, 140.0, 212.0, 180.0, 20.0),
+        ]
+    )
 
 
 def shape_rounded_rect(radius: float) -> list[bool]:

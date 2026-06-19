@@ -38,7 +38,7 @@ fn closed_smooth_ellipse_fit_removes_half_pixel_bias() {
 }
 
 #[test]
-fn closed_capsule_potrace_fit_uses_six_cubics() {
+fn closed_small_capsule_potrace_fit_uses_small_template() {
     let center_y = 40.0;
     let radius = 20.0;
     let left_center = (30.0, center_y);
@@ -68,11 +68,18 @@ fn closed_capsule_potrace_fit_uses_six_cubics() {
 
     let segments = fit_closed_capsule_potrace_segments(&points)
         .expect("capsule-like points should fit the primitive");
-
-    assert_eq!(segments.len(), 6);
-    assert!(segments
+    let cubic_count = segments
         .iter()
-        .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+        .filter(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+        .count();
+    let line_count = segments
+        .iter()
+        .filter(|segment| matches!(segment, SvgPathSegment::Line { .. }))
+        .count();
+
+    assert_eq!(segments.len(), 11);
+    assert_eq!(cubic_count, 5);
+    assert_eq!(line_count, 6);
 }
 
 #[test]
@@ -214,6 +221,30 @@ fn pixel_capsule_primitive_uses_potrace_like_cubics() {
         path_data,
         "M76.1 81.6c-25.3 6.8-41 33.1-34.6 57.9 4.5 17.2 17.9 30.5 35.2 35 8.5 2.2 94.2 2.2 102.8 0 25.6-6.7 41.5-32.9 35-57.8-4.5-17.3-17.8-30.7-35-35.2-8.4-2.2-95.2-2.1-103.4.1Z"
     );
+}
+
+#[test]
+fn pixel_double_pill_uses_small_capsule_template() {
+    let bitmap = parity_double_pill_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1986 1405l41 27"), "{svg}");
+    assert!(svg.contains("M1986 765l41 27"), "{svg}");
+    assert!(svg.contains("-690 2c-419 1-704-2-724-8"), "{svg}");
 }
 
 #[test]

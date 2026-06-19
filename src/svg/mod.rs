@@ -327,6 +327,20 @@ pub(crate) fn choose_pixel_potrace_point_set(
     let simplified = simplify_collinear_float_points(&path.points);
 
     if simplified.len() >= 3 && simplified.len() < path.points.len() {
+        if let Some(capsule) = fit_closed_capsule_potrace_segments(&simplified) {
+            if let Some(first) = capsule.first() {
+                let candidate = (first.start(), capsule);
+                if pixel_potrace_primitive_candidate_is_close_enough(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
+                    best = candidate;
+                }
+            }
+        }
+
         if let Some(candidate) = pixel_potrace_segments_for_points(
             path,
             &simplified,
@@ -440,6 +454,23 @@ pub(crate) fn choose_pixel_potrace_segments(
             {
                 if let Some(first) = diagonal_capsule.first() {
                     let candidate = (first.start(), diagonal_capsule);
+                    if pixel_potrace_primitive_candidate_is_close_enough(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(capsule) = fit_closed_capsule_potrace_segments(&path.points) {
+                if let Some(first) = capsule.first() {
+                    let candidate = (first.start(), capsule);
                     if pixel_potrace_primitive_candidate_is_close_enough(
                         path,
                         canvas_size,
@@ -581,6 +612,12 @@ pub(crate) fn choose_pixel_potrace_segments(
                         PIXEL_POTRACE_LINEAR_DEVIATION,
                     );
                     if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                        || pixel_potrace_primitive_candidate_is_close_enough(
+                            path,
+                            canvas_size,
+                            &candidate,
+                            &best,
+                        )
                         || pixel_potrace_fitted_candidate_is_close_enough(
                             path,
                             canvas_size,

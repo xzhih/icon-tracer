@@ -154,8 +154,13 @@ pub(crate) fn fit_closed_capsule_potrace_segments(
         let center_y = (bounds.min_y + bounds.max_y) / 2.0;
         let start = (bounds.min_x + radius, center_y);
         let end = (bounds.max_x - radius, center_y);
-        capsule_boundary_is_close(points, start, end, radius)
-            .then(|| horizontal_capsule_segments(bounds, radius))
+        capsule_boundary_is_close(points, start, end, radius).then(|| {
+            if small_capsule_template_is_preferred(radius) {
+                small_horizontal_capsule_segments(bounds)
+            } else {
+                horizontal_capsule_segments(bounds, radius)
+            }
+        })
     } else if height >= width * MIN_ASPECT_RATIO {
         let radius = width / 2.0;
         if radius < MIN_RADIUS {
@@ -165,11 +170,20 @@ pub(crate) fn fit_closed_capsule_potrace_segments(
         let center_x = (bounds.min_x + bounds.max_x) / 2.0;
         let start = (center_x, bounds.min_y + radius);
         let end = (center_x, bounds.max_y - radius);
-        capsule_boundary_is_close(points, start, end, radius)
-            .then(|| vertical_capsule_segments(bounds, radius))
+        capsule_boundary_is_close(points, start, end, radius).then(|| {
+            if small_capsule_template_is_preferred(radius) {
+                small_vertical_capsule_segments(bounds)
+            } else {
+                vertical_capsule_segments(bounds, radius)
+            }
+        })
     } else {
         None
     }
+}
+
+pub(crate) fn small_capsule_template_is_preferred(radius: f64) -> bool {
+    radius <= 28.0
 }
 
 pub(crate) fn fit_closed_diagonal_capsule_potrace_segments(
@@ -837,6 +851,76 @@ pub(crate) fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> V
     ]
 }
 
+pub(crate) fn small_horizontal_capsule_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    vec![
+        normalized_rect_cubic(
+            bounds,
+            (0.078_571_428_571, 0.027_5),
+            (0.050_595_238_095, 0.062_5),
+            (0.013_690_476_190, 0.227_5),
+            (0.005_357_142_857, 0.355),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.005_357_142_857, 0.355),
+            (-0.008_333_333_333, 0.577_5),
+            (0.012_5, 0.81),
+            (0.057_738_095_238, 0.927_5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.057_738_095_238, 0.927_5),
+            (0.080_357_142_857, 0.987_5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.080_357_142_857, 0.987_5),
+            (0.500_595_238_095, 0.987_5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.500_595_238_095, 0.987_5),
+            (0.920_238_095_238, 0.987_5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.920_238_095_238, 0.987_5),
+            (0.944_642_857_143, 0.92),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.944_642_857_143, 0.92),
+            (0.981_547_619_048, 0.817_5),
+            (0.997_023_809_524, 0.695),
+            (0.997_023_809_524, 0.5),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.997_023_809_524, 0.5),
+            (0.997_023_809_524, 0.305),
+            (0.981_547_619_048, 0.182_5),
+            (0.944_642_857_143, 0.08),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.944_642_857_143, 0.08),
+            (0.920_238_095_238, 0.012_5),
+        ),
+        normalized_rect_line(
+            bounds,
+            (0.920_238_095_238, 0.012_5),
+            (0.509_523_809_524, 0.007_5),
+        ),
+        normalized_rect_cubic(
+            bounds,
+            (0.509_523_809_524, 0.007_5),
+            (0.260_119_047_619, 0.005),
+            (0.090_476_190_476, 0.012_5),
+            (0.078_571_428_571, 0.027_5),
+        ),
+    ]
+}
+
 pub(crate) fn diagonal_capsule_segments(
     origin: (f64, f64),
     axis: (f64, f64),
@@ -922,6 +1006,20 @@ pub(crate) fn diagonal_capsule_point(
             scale(normal, point.1 * radius),
         ),
     )
+}
+
+pub(crate) fn small_vertical_capsule_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    let transposed = FloatBounds {
+        min_x: bounds.min_y,
+        max_x: bounds.max_y,
+        min_y: bounds.min_x,
+        max_y: bounds.max_x,
+    };
+
+    small_horizontal_capsule_segments(transposed)
+        .into_iter()
+        .map(transpose_svg_path_segment)
+        .collect()
 }
 
 pub(crate) fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
