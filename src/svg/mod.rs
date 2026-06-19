@@ -531,6 +531,23 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(plus) = fit_closed_plus_potrace_segments(&path.points) {
+                if let Some(first) = plus.first() {
+                    let candidate = (first.start(), plus);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(staple) = fit_closed_staple_potrace_segments(&path.points) {
                 if let Some(first) = staple.first() {
                     let candidate = (first.start(), staple);

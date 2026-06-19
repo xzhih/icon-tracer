@@ -248,6 +248,30 @@ fn pixel_double_pill_uses_small_capsule_template() {
 }
 
 #[test]
+fn pixel_plus_shape_uses_potrace_template() {
+    let bitmap = parity_plus_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1500 1500l0 218"), "{svg}");
+    assert!(svg.contains("c0 270-12 304-113 347"), "{svg}");
+    assert!(svg.contains("c-225 0-261-6-309-48"), "{svg}");
+}
+
+#[test]
 fn pixel_diagonal_capsule_primitive_uses_potrace_like_cubics() {
     let bitmap = parity_diagonal_bar_bitmap();
     let traced = trace_bitmap(
