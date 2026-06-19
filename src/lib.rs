@@ -4499,7 +4499,11 @@ fn compact_absolute_svg_path_data_from_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
 ) -> String {
-    let mut data = format!("M {} {}", format_float(start.0), format_float(start.1));
+    let mut data = format!(
+        "M {} {}",
+        format_compact_float(start.0),
+        format_compact_float(start.1)
+    );
     let mut previous_command: Option<char> = None;
 
     for segment in segments {
@@ -4510,7 +4514,11 @@ fn compact_absolute_svg_path_data_from_segments(
                     previous_command = Some('L');
                 }
 
-                data.push_str(&format!(" {} {}", format_float(end.0), format_float(end.1)));
+                data.push_str(&format!(
+                    " {} {}",
+                    format_compact_float(end.0),
+                    format_compact_float(end.1)
+                ));
             }
             SvgPathSegment::Cubic(cubic) => {
                 if previous_command != Some('C') {
@@ -4520,12 +4528,12 @@ fn compact_absolute_svg_path_data_from_segments(
 
                 data.push_str(&format!(
                     " {} {}, {} {}, {} {}",
-                    format_float(cubic.control1.0),
-                    format_float(cubic.control1.1),
-                    format_float(cubic.control2.0),
-                    format_float(cubic.control2.1),
-                    format_float(cubic.end.0),
-                    format_float(cubic.end.1)
+                    format_compact_float(cubic.control1.0),
+                    format_compact_float(cubic.control1.1),
+                    format_compact_float(cubic.control2.0),
+                    format_compact_float(cubic.control2.1),
+                    format_compact_float(cubic.end.0),
+                    format_compact_float(cubic.end.1)
                 ));
             }
         }
@@ -4539,7 +4547,11 @@ fn compact_relative_svg_path_data_from_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
 ) -> String {
-    let mut data = format!("M {} {}", format_float(start.0), format_float(start.1));
+    let mut data = format!(
+        "M {} {}",
+        format_compact_float(start.0),
+        format_compact_float(start.1)
+    );
     let mut previous_command: Option<char> = None;
     let mut current = start;
 
@@ -4553,8 +4565,8 @@ fn compact_relative_svg_path_data_from_segments(
 
                 data.push_str(&format!(
                     " {} {}",
-                    format_float(end.0 - current.0),
-                    format_float(end.1 - current.1)
+                    format_compact_float(end.0 - current.0),
+                    format_compact_float(end.1 - current.1)
                 ));
                 current = *end;
             }
@@ -4566,12 +4578,12 @@ fn compact_relative_svg_path_data_from_segments(
 
                 data.push_str(&format!(
                     " {} {}, {} {}, {} {}",
-                    format_float(cubic.control1.0 - current.0),
-                    format_float(cubic.control1.1 - current.1),
-                    format_float(cubic.control2.0 - current.0),
-                    format_float(cubic.control2.1 - current.1),
-                    format_float(cubic.end.0 - current.0),
-                    format_float(cubic.end.1 - current.1)
+                    format_compact_float(cubic.control1.0 - current.0),
+                    format_compact_float(cubic.control1.1 - current.1),
+                    format_compact_float(cubic.control2.0 - current.0),
+                    format_compact_float(cubic.control2.1 - current.1),
+                    format_compact_float(cubic.end.0 - current.0),
+                    format_compact_float(cubic.end.1 - current.1)
                 ));
                 current = cubic.end;
             }
@@ -5327,12 +5339,17 @@ fn cubic_control_point(endpoint: (f64, f64), corner: (f64, f64)) -> (f64, f64) {
 }
 
 fn format_float(value: f64) -> String {
-    let value = if value.abs() < 0.000_000_5 {
-        0.0
-    } else {
-        value
-    };
-    let mut formatted = format!("{value:.6}");
+    format_float_with_precision(value, 6)
+}
+
+fn format_compact_float(value: f64) -> String {
+    format_float_with_precision(value, 3)
+}
+
+fn format_float_with_precision(value: f64, precision: usize) -> String {
+    let epsilon = 0.5 * 10.0_f64.powi(-(precision as i32));
+    let value = if value.abs() < epsilon { 0.0 } else { value };
+    let mut formatted = format!("{value:.precision$}");
 
     while formatted.contains('.') && formatted.ends_with('0') {
         formatted.pop();
@@ -6063,6 +6080,18 @@ mod tests {
         let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
 
         assert_eq!(data, "M 1000 1000 L 0 0 C 0 0, 0 0, 0 0 Z");
+    }
+
+    #[test]
+    fn compact_path_data_limits_fractional_precision() {
+        let segments = vec![SvgPathSegment::Line {
+            start: (10.12345, 20.98765),
+            end: (11.55555, 22.44444),
+        }];
+
+        let data = compact_svg_path_data_from_segments((10.12345, 20.98765), &segments);
+
+        assert_eq!(data, "M 10.123 20.988 l 1.432 1.457 Z");
     }
 
     #[test]
