@@ -936,10 +936,11 @@ impl TracedBitmap {
             .filter_map(|path| path_to_svg_data(path, options))
             .collect::<Vec<_>>()
             .join(" ");
+        let path = svg_path_element(&path_data, options.pixel_potrace);
 
         format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}"><path fill="black" fill-rule="evenodd" d="{}"/></svg>"#,
-            self.width, self.height, path_data
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}">{}</svg>"#,
+            self.width, self.height, path
         )
     }
 
@@ -955,6 +956,26 @@ impl TracedBitmap {
             height: self.height,
             pixels,
         }
+    }
+}
+
+fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String {
+    let plain = format!(r#"<path fill="black" fill-rule="evenodd" d="{path_data}"/>"#);
+    if !allow_scaled_potrace_path {
+        return plain;
+    }
+
+    let Some(scaled_path_data) = scaled_integer_svg_path_data(path_data, 100.0) else {
+        return plain;
+    };
+    let scaled = format!(
+        r#"<path fill="black" fill-rule="evenodd" transform="scale(.01)" d="{scaled_path_data}"/>"#
+    );
+
+    if scaled.len() < plain.len() {
+        scaled
+    } else {
+        plain
     }
 }
 
@@ -4945,6 +4966,95 @@ fn minify_compact_svg_path_data(data: &str) -> String {
     minified
 }
 
+fn scaled_integer_svg_path_data(data: &str, scale_factor: f64) -> Option<String> {
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+
+    while index < data.len() {
+        let byte = data.as_bytes()[index];
+        if byte.is_ascii_whitespace() || byte == b',' {
+            index += 1;
+            continue;
+        }
+
+        if byte.is_ascii_alphabetic() {
+            tokens.push(data[index..index + 1].to_owned());
+            index += 1;
+            continue;
+        }
+
+        let end = svg_number_token_end(data, index)?;
+        let value = data[index..end].parse::<f64>().ok()?;
+        let scaled = (value * scale_factor).round();
+        let scaled = if scaled == 0.0 { 0.0 } else { scaled };
+        tokens.push(format!("{scaled:.0}"));
+        index = end;
+    }
+
+    Some(minify_svg_path_tokens(&tokens))
+}
+
+fn svg_number_token_end(data: &str, start: usize) -> Option<usize> {
+    let bytes = data.as_bytes();
+    let mut index = start;
+
+    if matches!(bytes.get(index), Some(b'+' | b'-')) {
+        index += 1;
+    }
+
+    let mut has_digits = false;
+    while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+        has_digits = true;
+        index += 1;
+    }
+
+    if matches!(bytes.get(index), Some(b'.')) {
+        index += 1;
+        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+            has_digits = true;
+            index += 1;
+        }
+    }
+
+    if !has_digits {
+        return None;
+    }
+
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        let exponent_start = index;
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+
+        let exponent_digits_start = index;
+        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+            index += 1;
+        }
+
+        if index == exponent_digits_start {
+            index = exponent_start;
+        }
+    }
+
+    Some(index)
+}
+
+fn minify_svg_path_tokens(tokens: &[String]) -> String {
+    let mut minified = String::new();
+    let mut previous: Option<&str> = None;
+
+    for token in tokens {
+        if previous.is_some_and(|previous| compact_path_tokens_need_separator(previous, token)) {
+            minified.push(' ');
+        }
+        minified.push_str(token);
+        previous = Some(token);
+    }
+
+    minified
+}
+
 fn compact_path_tokens_need_separator(previous: &str, next: &str) -> bool {
     if compact_path_token_is_command(previous) || compact_path_token_is_command(next) {
         return false;
@@ -6818,6 +6928,31 @@ mod tests {
         let data = compact_svg_path_data_from_segments((0.0, 0.0), &segments);
 
         assert_eq!(data, "M0 0c0 10 10 10 10 0s10-10 10 0Z");
+    }
+
+    #[test]
+    fn scaled_integer_path_data_preserves_numeric_separators() {
+        let data = scaled_integer_svg_path_data(
+            "M52 128c0-32.93 21.2-62.11 52.51-72.28s65.62.97 84.97 27.61Z",
+            10.0,
+        )
+        .expect("compact path data should parse");
+
+        assert!(data.contains("656 10"), "{data}");
+        assert!(!data.contains("65610"), "{data}");
+    }
+
+    #[test]
+    fn scaled_potrace_path_element_is_used_only_when_shorter() {
+        let diagonal = "M92.5 183c-11 9.62-21.5 18.18-23.32 19-6.29 2.84-15.93 1.27-19.72-3.2-4.94-5.83-6.24-13.59-3.43-20.53.84-2.07 23.11-22.67 49.5-45.77l67.98-59.5c11-9.62 21.5-18.17 23.32-19 6.29-2.84 15.93-1.27 19.72 3.2 4.94 5.83 6.24 13.59 3.43 20.53-.84 2.07-23.11 22.67-49.5 45.77l-67.98 59.5Z";
+        let square = "M72 72l112 0 0 112-112 0 0-56 0-56Z";
+
+        let diagonal_path = svg_path_element(diagonal, true);
+        let square_path = svg_path_element(square, true);
+
+        assert!(diagonal_path.contains(r#"transform="scale(.01)""#));
+        assert!(diagonal_path.len() < svg_path_element(diagonal, false).len());
+        assert!(!square_path.contains("transform="), "{square_path}");
     }
 
     #[test]
