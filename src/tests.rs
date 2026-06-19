@@ -55,6 +55,67 @@ fn parity_c_shape_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+fn parity_f_shape_bitmap() -> Bitmap {
+    const CANVAS: usize = 256;
+    const RUNS: &[(usize, usize, usize, usize)] = &[
+        (62, 62, 98, 181),
+        (63, 63, 96, 183),
+        (64, 64, 95, 184),
+        (65, 65, 94, 185),
+        (66, 67, 93, 186),
+        (68, 87, 92, 187),
+        (88, 89, 92, 186),
+        (90, 90, 92, 185),
+        (91, 91, 92, 184),
+        (92, 92, 92, 183),
+        (93, 93, 92, 181),
+        (94, 94, 68, 125),
+        (95, 95, 66, 125),
+        (96, 96, 65, 125),
+        (97, 97, 64, 125),
+        (98, 99, 63, 125),
+        (100, 119, 62, 125),
+        (120, 121, 63, 125),
+        (122, 122, 64, 125),
+        (123, 123, 65, 125),
+        (124, 124, 66, 125),
+        (125, 125, 68, 125),
+        (126, 126, 92, 181),
+        (127, 127, 92, 183),
+        (128, 128, 92, 184),
+        (129, 129, 92, 185),
+        (130, 131, 92, 186),
+        (132, 151, 92, 187),
+        (152, 153, 92, 186),
+        (154, 154, 92, 185),
+        (155, 155, 92, 184),
+        (156, 156, 92, 183),
+        (157, 157, 92, 181),
+        (158, 158, 68, 125),
+        (159, 159, 66, 125),
+        (160, 160, 65, 125),
+        (161, 161, 64, 125),
+        (162, 163, 63, 125),
+        (164, 187, 62, 125),
+        (188, 189, 63, 124),
+        (190, 190, 64, 123),
+        (191, 191, 65, 122),
+        (192, 192, 66, 121),
+        (193, 193, 68, 119),
+    ];
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                RUNS.iter().any(|(top, bottom, left, right)| {
+                    (*top..=*bottom).contains(&y) && (*left..=*right).contains(&x)
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 fn parity_two_circles_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let left_center = (84.0, 128.0);
@@ -984,6 +1045,29 @@ fn pixel_c_shape_template_matches_potrace_output() {
         final_data,
         "M195.4 89c-4.1-7.5-12.4-17.1-19.5-22.5-7.5-5.6-19.9-11.8-28.4-14.1-8.3-2.2-26.4-2.7-34.5-.9-29.8 6.3-52.8 28.2-60.7 57.5-2.4 8.9-2.4 29.1 0 38 6 22.3 20.9 40.5 41.2 50.6 12.9 6.3 19.6 7.9 34.5 7.9 14.5 0 21.3-1.5 33.5-7.4 14.5-7 27-18.4 33.9-31.1l2.7-5h-21.5c-13.5 0-21.7.4-22.1 1-1 1.6-10.5 6.2-16 7.6-26.8 7.2-54.5-14.5-54.5-42.6 0-15.7 9.6-31.7 23.1-38.6 14.1-7.1 27.6-7.2 41.6-.1 2.8 1.5 5.4 3.1 5.8 3.7s8.6 1 22.1 1h21.5Z"
     );
+}
+
+#[test]
+fn pixel_f_shape_template_matches_potrace_mask() {
+    let bitmap = parity_f_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M920 1882l0-131"), "{svg}");
+    assert!(svg.contains("281 0 281 0"), "{svg}");
 }
 
 #[test]
