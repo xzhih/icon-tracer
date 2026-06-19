@@ -296,28 +296,36 @@ def compare_metric(magick: str, metric: str, reference: Path, candidate: Path) -
 def svg_stats(svg: Path) -> dict:
     text = svg.read_text(encoding="utf-8")
     paths = PATH_RE.findall(text)
-    commands = []
+    command_count = 0
+    cubic_count = 0
+    line_count = 0
     point_count = 0
     d_bytes = 0
     for path_data in paths:
         d_bytes += len(path_data.encode("utf-8"))
-        commands.extend(command.upper() for command in COMMAND_RE.findall(path_data))
-        point_count += svg_path_point_count(path_data)
+        path_stats = svg_path_stats(path_data)
+        command_count += path_stats["command_count"]
+        cubic_count += path_stats["cubic_count"]
+        line_count += path_stats["line_count"]
+        point_count += path_stats["point_count"]
 
     return {
         "path_count": len(paths),
-        "command_count": len(commands),
-        "cubic_count": commands.count("C"),
-        "line_count": commands.count("L") + commands.count("H") + commands.count("V"),
+        "command_count": command_count,
+        "cubic_count": cubic_count,
+        "line_count": line_count,
         "point_count": point_count,
         "d_bytes": d_bytes,
     }
 
 
-def svg_path_point_count(path_data: str) -> int:
+def svg_path_stats(path_data: str) -> dict:
     tokens = PATH_TOKEN_RE.findall(path_data)
     index = 0
     command = ""
+    command_count = 0
+    cubic_count = 0
+    line_count = 0
     points = 0
 
     while index < len(tokens):
@@ -327,6 +335,7 @@ def svg_path_point_count(path_data: str) -> int:
 
         upper = command.upper()
         if upper == "Z":
+            command_count += 1
             command = ""
             continue
         if not command:
@@ -340,6 +349,11 @@ def svg_path_point_count(path_data: str) -> int:
 
         first_moveto = upper == "M"
         while index + arity <= len(tokens) and not COMMAND_RE.fullmatch(tokens[index]):
+            command_count += 1
+            if upper in ("C", "S"):
+                cubic_count += 1
+            elif upper in ("L", "H", "V"):
+                line_count += 1
             points += segment_points
             index += arity
             if first_moveto:
@@ -354,7 +368,12 @@ def svg_path_point_count(path_data: str) -> int:
         if index < len(tokens) and not COMMAND_RE.fullmatch(tokens[index]):
             index += 1
 
-    return points
+    return {
+        "command_count": command_count,
+        "cubic_count": cubic_count,
+        "line_count": line_count,
+        "point_count": points,
+    }
 
 
 def svg_command_arity_and_points(command: str) -> tuple[int, int]:
