@@ -2926,7 +2926,6 @@ fn path_to_potrace_svg_data(
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
         && path.points.len() >= 12
-        && !points_are_half_pixel_quantized(&path.points)
     {
         let fitted = fit_closed_smooth_potrace_segments(&path.points, true);
         if let Some(first) = fitted.first() {

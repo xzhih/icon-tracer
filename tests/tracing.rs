@@ -347,6 +347,27 @@ fn potrace_curve_mode_uses_primitive_fit_for_scalar_ring() {
 }
 
 #[test]
+fn potrace_curve_mode_uses_primitive_fit_for_subpixel_circle() {
+    let bitmap = circle_bitmap(48, 48, 24.0, 24.0, 16.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            contour_mode: ContourMode::Subpixel,
+            ..TraceOptions::default()
+        },
+    );
+
+    let svg = traced.to_svg_with_options(SvgOptions {
+        curve_mode: CurveMode::Potrace,
+    });
+
+    assert!(
+        count_cubic_segments(&svg) <= 8,
+        "subpixel circle should stay primitive-like: {svg}"
+    );
+}
+
+#[test]
 fn fit_curve_reduces_cubic_segments_for_subpixel_stair_steps() {
     let bitmap = Bitmap::from_rows(
         5,
