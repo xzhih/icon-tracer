@@ -4633,8 +4633,6 @@ fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgP
     const MIN_AXIS: f64 = 8.0;
     const MAX_RADIAL_ERROR: f64 = 0.075;
     const MAX_MEAN_RADIAL_ERROR: f64 = 0.03;
-    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
-
     let bounds = FloatBounds::from_points(points)?;
     let rx = (bounds.max_x - bounds.min_x) / 2.0;
     let ry = (bounds.max_y - bounds.min_y) / 2.0;
@@ -4662,44 +4660,45 @@ fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgP
         return None;
     }
 
-    let left = (center.0 - rx, center.1);
-    let top = (center.0, center.1 - ry);
-    let right = (center.0 + rx, center.1);
-    let bottom = (center.0, center.1 + ry);
-    let kx = rx * CIRCLE_ARC_KAPPA;
-    let ky = ry * CIRCLE_ARC_KAPPA;
+    // Pixel circles from Potrace tend to use five cubic arcs rather than a
+    // mathematically minimal four-arc ellipse.
+    Some(ellipse_arc_segments(center, rx, ry, 5))
+}
 
-    Some(
-        [
-            CubicSegment {
-                start: left,
-                control1: (left.0, left.1 - ky),
-                control2: (top.0 - kx, top.1),
-                end: top,
-            },
-            CubicSegment {
-                start: top,
-                control1: (top.0 + kx, top.1),
-                control2: (right.0, right.1 - ky),
-                end: right,
-            },
-            CubicSegment {
-                start: right,
-                control1: (right.0, right.1 + ky),
-                control2: (bottom.0 + kx, bottom.1),
-                end: bottom,
-            },
-            CubicSegment {
-                start: bottom,
-                control1: (bottom.0 - kx, bottom.1),
-                control2: (left.0, left.1 + ky),
-                end: left,
-            },
-        ]
-        .into_iter()
-        .map(SvgPathSegment::Cubic)
-        .collect(),
-    )
+fn ellipse_arc_segments(
+    center: (f64, f64),
+    rx: f64,
+    ry: f64,
+    segment_count: usize,
+) -> Vec<SvgPathSegment> {
+    let step = 2.0 * std::f64::consts::PI / segment_count as f64;
+    let handle = (4.0 / 3.0) * (step / 4.0).tan();
+
+    (0..segment_count)
+        .map(|index| {
+            let start_angle = std::f64::consts::PI + step * index as f64;
+            let end_angle = start_angle + step;
+            let start = ellipse_point(center, rx, ry, start_angle);
+            let end = ellipse_point(center, rx, ry, end_angle);
+            let start_tangent = ellipse_tangent(rx, ry, start_angle);
+            let end_tangent = ellipse_tangent(rx, ry, end_angle);
+
+            SvgPathSegment::Cubic(CubicSegment {
+                start,
+                control1: add(start, scale(start_tangent, handle)),
+                control2: subtract(end, scale(end_tangent, handle)),
+                end,
+            })
+        })
+        .collect()
+}
+
+fn ellipse_point(center: (f64, f64), rx: f64, ry: f64, angle: f64) -> (f64, f64) {
+    (center.0 + rx * angle.cos(), center.1 + ry * angle.sin())
+}
+
+fn ellipse_tangent(rx: f64, ry: f64, angle: f64) -> (f64, f64) {
+    (-rx * angle.sin(), ry * angle.cos())
 }
 
 fn points_are_half_pixel_quantized(points: &[(f64, f64)]) -> bool {
@@ -6768,7 +6767,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_ellipse_potrace_fit_uses_four_cubics() {
+    fn closed_ellipse_potrace_fit_uses_five_cubics() {
         let points = (0..64)
             .map(|index| {
                 let angle = index as f64 * std::f64::consts::TAU / 64.0;
@@ -6779,7 +6778,7 @@ mod tests {
         let segments = fit_closed_ellipse_potrace_segments(&points)
             .expect("ellipse-like points should fit the primitive");
 
-        assert_eq!(segments.len(), 4);
+        assert_eq!(segments.len(), 5);
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
