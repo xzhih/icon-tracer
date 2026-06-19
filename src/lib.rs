@@ -2906,7 +2906,12 @@ fn path_to_potrace_svg_data(
         }
     }
 
-    let (start, segments) = optimize_potrace_segments(start, &segments, opt_tolerance);
+    let (start, segments) = optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        STRICT_POTRACE_LINEAR_DEVIATION,
+    );
     Some(svg_path_data_from_segments(start, &segments))
 }
 
@@ -2981,7 +2986,12 @@ fn choose_pixel_potrace_segments(
     opt_tolerance: f64,
     canvas_size: Option<(usize, usize)>,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
-    let mut best = optimize_potrace_segments(start, &segments, opt_tolerance);
+    let mut best = optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    );
 
     if segments
         .iter()
@@ -2990,7 +3000,12 @@ fn choose_pixel_potrace_segments(
     {
         let fitted = fit_closed_smooth_potrace_segments(&path.points, true);
         if let Some(first) = fitted.first() {
-            let candidate = optimize_potrace_segments(first.start(), &fitted, opt_tolerance);
+            let candidate = optimize_potrace_segments(
+                first.start(),
+                &fitted,
+                opt_tolerance,
+                PIXEL_POTRACE_LINEAR_DEVIATION,
+            );
             if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
                 best = candidate;
             }
@@ -3763,6 +3778,7 @@ fn optimize_potrace_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
     opt_tolerance: f64,
+    max_linear_deviation: f64,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     if segments.len() < 3 {
         return (start, segments.to_vec());
@@ -3783,19 +3799,20 @@ fn optimize_potrace_segments(
             opt_tolerance,
         );
 
-        return finish_potrace_segments(start, optimized, opt_tolerance);
+        return finish_potrace_segments(start, optimized, opt_tolerance, max_linear_deviation);
     }
 
     let (start, optimized) = optimize_mixed_potrace_curve_runs_once(start, segments, opt_tolerance);
-    finish_potrace_segments(start, optimized, opt_tolerance)
+    finish_potrace_segments(start, optimized, opt_tolerance, max_linear_deviation)
 }
 
 fn finish_potrace_segments(
     start: (f64, f64),
     segments: Vec<SvgPathSegment>,
     opt_tolerance: f64,
+    max_linear_deviation: f64,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
-    let optimized = cleanup_potrace_segments(segments);
+    let optimized = cleanup_potrace_segments(segments, max_linear_deviation);
     if optimized
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
@@ -3805,7 +3822,10 @@ fn finish_potrace_segments(
 
     let (start, optimized) =
         optimize_mixed_potrace_curve_runs_once(start, &optimized, opt_tolerance);
-    (start, cleanup_potrace_segments(optimized))
+    (
+        start,
+        cleanup_potrace_segments(optimized, max_linear_deviation),
+    )
 }
 
 fn optimize_mixed_potrace_curve_runs_once(
@@ -3832,10 +3852,13 @@ fn optimize_mixed_potrace_curve_runs_once(
     (start, optimized)
 }
 
-fn cleanup_potrace_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+fn cleanup_potrace_segments(
+    segments: Vec<SvgPathSegment>,
+    max_linear_deviation: f64,
+) -> Vec<SvgPathSegment> {
     let optimized = prune_tiny_potrace_curve_segments(segments);
     let optimized = regularize_potrace_orthogonal_corners(optimized);
-    let optimized = demote_nearly_linear_potrace_cubics(optimized);
+    let optimized = demote_nearly_linear_potrace_cubics(optimized, max_linear_deviation);
     merge_collinear_potrace_lines(optimized)
 }
 
@@ -3892,11 +3915,16 @@ fn merge_collinear_potrace_line_pair(
     Some(SvgPathSegment::Line { start, end })
 }
 
-fn demote_nearly_linear_potrace_cubics(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+fn demote_nearly_linear_potrace_cubics(
+    segments: Vec<SvgPathSegment>,
+    max_linear_deviation: f64,
+) -> Vec<SvgPathSegment> {
     segments
         .into_iter()
         .map(|segment| match segment {
-            SvgPathSegment::Cubic(cubic) if potrace_cubic_is_nearly_linear(cubic) => {
+            SvgPathSegment::Cubic(cubic)
+                if potrace_cubic_is_nearly_linear(cubic, max_linear_deviation) =>
+            {
                 SvgPathSegment::Line {
                     start: cubic.start,
                     end: cubic.end,
@@ -3907,12 +3935,14 @@ fn demote_nearly_linear_potrace_cubics(segments: Vec<SvgPathSegment>) -> Vec<Svg
         .collect()
 }
 
-fn potrace_cubic_is_nearly_linear(cubic: CubicSegment) -> bool {
+const STRICT_POTRACE_LINEAR_DEVIATION: f64 = 0.25;
+const PIXEL_POTRACE_LINEAR_DEVIATION: f64 = 1.0;
+
+fn potrace_cubic_is_nearly_linear(cubic: CubicSegment, max_linear_deviation: f64) -> bool {
     const MIN_LINEAR_LENGTH: f64 = 16.0;
-    const MAX_LINEAR_DEVIATION: f64 = 0.25;
 
     cubic_chord_length(cubic) >= MIN_LINEAR_LENGTH
-        && cubic_chord_deviation(cubic) <= MAX_LINEAR_DEVIATION
+        && cubic_chord_deviation(cubic) <= max_linear_deviation
 }
 
 fn prune_tiny_potrace_curve_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -7583,11 +7613,11 @@ mod tests {
 
     #[test]
     fn potrace_segment_cleanup_demotes_nearly_linear_cubics() {
-        let segments = vec![
+        let segments = [
             SvgPathSegment::Cubic(CubicSegment {
                 start: (0.0, 0.0),
-                control1: (33.0, 0.05),
-                control2: (66.0, -0.05),
+                control1: (33.0, 0.8),
+                control2: (66.0, -0.8),
                 end: (100.0, 0.0),
             }),
             SvgPathSegment::Cubic(CubicSegment {
@@ -7598,10 +7628,14 @@ mod tests {
             }),
         ];
 
-        let cleaned = demote_nearly_linear_potrace_cubics(segments);
+        let strict_cleaned =
+            demote_nearly_linear_potrace_cubics(segments.to_vec(), STRICT_POTRACE_LINEAR_DEVIATION);
+        let pixel_cleaned =
+            demote_nearly_linear_potrace_cubics(segments.to_vec(), PIXEL_POTRACE_LINEAR_DEVIATION);
 
-        assert!(matches!(cleaned[0], SvgPathSegment::Line { .. }));
-        assert!(matches!(cleaned[1], SvgPathSegment::Cubic(_)));
+        assert!(matches!(strict_cleaned[0], SvgPathSegment::Cubic(_)));
+        assert!(matches!(pixel_cleaned[0], SvgPathSegment::Line { .. }));
+        assert!(matches!(pixel_cleaned[1], SvgPathSegment::Cubic(_)));
     }
 
     #[test]
@@ -7662,7 +7696,8 @@ mod tests {
             SvgPathSegment::Cubic(line_as_cubic((32.0, 0.0), (0.0, 0.0))),
         ];
 
-        let (_, optimized) = finish_potrace_segments((0.0, 0.0), segments, 0.2);
+        let (_, optimized) =
+            finish_potrace_segments((0.0, 0.0), segments, 0.2, STRICT_POTRACE_LINEAR_DEVIATION);
         let cubic_count = optimized
             .iter()
             .filter(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
