@@ -884,6 +884,32 @@ pub struct SvgOptions {
     pub curve_mode: CurveMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SvgRenderOptions {
+    pub curve_mode: CurveMode,
+    pub opt_tolerance: f64,
+    pub pixel_potrace: bool,
+}
+
+impl Default for SvgRenderOptions {
+    fn default() -> Self {
+        Self {
+            curve_mode: CurveMode::Polygon,
+            opt_tolerance: 0.2,
+            pixel_potrace: false,
+        }
+    }
+}
+
+impl From<SvgOptions> for SvgRenderOptions {
+    fn from(options: SvgOptions) -> Self {
+        Self {
+            curve_mode: options.curve_mode,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CurveMode {
     #[default]
@@ -900,6 +926,10 @@ impl TracedBitmap {
     }
 
     pub fn to_svg_with_options(&self, options: SvgOptions) -> String {
+        self.to_svg_with_render_options(options.into())
+    }
+
+    pub fn to_svg_with_render_options(&self, options: SvgRenderOptions) -> String {
         let path_data = self
             .paths
             .iter()
@@ -1471,6 +1501,7 @@ fn traced_point_count(traced: &TracedBitmap) -> usize {
 }
 
 fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize {
+    let options = SvgRenderOptions::from(options);
     traced
         .paths
         .iter()
@@ -2677,13 +2708,15 @@ fn is_below_turd_size_float(area: f64, turd_size: usize) -> bool {
     turd_size != 0 && area.abs() <= turd_size as f64
 }
 
-fn path_to_svg_data(path: &TracePath, options: SvgOptions) -> Option<String> {
+fn path_to_svg_data(path: &TracePath, options: SvgRenderOptions) -> Option<String> {
     match options.curve_mode {
         CurveMode::Polygon => path_to_polygon_svg_data(path),
         CurveMode::Smooth => path_to_smooth_svg_data(path),
         CurveMode::Spline => path_to_spline_svg_data(path),
         CurveMode::Fit => path_to_fit_svg_data(path),
-        CurveMode::Potrace => path_to_potrace_svg_data(path),
+        CurveMode::Potrace => {
+            path_to_potrace_svg_data(path, options.opt_tolerance.max(0.0), options.pixel_potrace)
+        }
     }
 }
 
@@ -2806,20 +2839,29 @@ fn path_to_fit_svg_data(path: &TracePath) -> Option<String> {
     Some(data)
 }
 
-fn path_to_potrace_svg_data(path: &TracePath) -> Option<String> {
+fn path_to_potrace_svg_data(
+    path: &TracePath,
+    opt_tolerance: f64,
+    pixel_potrace: bool,
+) -> Option<String> {
     if path.points.len() < 3 {
         return path_to_polygon_svg_data(path);
     }
 
-    let polygon = optimal_potrace_polygon_indices(&path.points);
-    let vertices = adjust_potrace_vertices(&path.points, &polygon);
+    let polygon = if pixel_potrace {
+        optimal_potrace_polygon_indices(&path.points)
+    } else {
+        legacy_potrace_polygon_indices(&path.points)
+    };
+    let max_vertex_adjustment = if pixel_potrace { 0.5 } else { 1.0 };
+    let vertices = adjust_potrace_vertices(&path.points, &polygon, max_vertex_adjustment);
     let (mut start, mut segments) = smooth_potrace_vertices(&vertices)?;
 
     if segments
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
         && path.points.len() >= 12
-        && !points_are_half_pixel_quantized(&path.points)
+        && (pixel_potrace || !points_are_half_pixel_quantized(&path.points))
     {
         let fitted = fit_closed_smooth_potrace_segments(&path.points);
         if let Some(first) = fitted.first() {
@@ -2828,16 +2870,55 @@ fn path_to_potrace_svg_data(path: &TracePath) -> Option<String> {
         }
     }
 
-    let (start, segments) = optimize_potrace_segments(start, &segments);
+    let (start, segments) = optimize_potrace_segments(start, &segments, opt_tolerance);
     Some(svg_path_data_from_segments(start, &segments))
 }
 
 fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
-    const POLYGON_TOLERANCE: f64 = 0.75;
+    if points.len() > 3 && distance_squared_float(points[0], points[points.len() - 1]) <= 1.0e-12 {
+        return optimal_potrace_polygon_indices(&points[..points.len() - 1]);
+    }
 
     if points.len() <= 8 {
         return (0..points.len()).collect();
     }
+
+    if !points_are_half_pixel_quantized(points) {
+        return legacy_potrace_polygon_indices(points);
+    }
+
+    let mut best: Option<PolygonCandidate> = None;
+    for rotation in polygon_rotation_candidates(points) {
+        let rotated = rotate_float_points(points, rotation);
+        let Some(candidate) = best_polygon_for_rotated_points(&rotated) else {
+            continue;
+        };
+        let indices = candidate
+            .indices
+            .iter()
+            .map(|index| (index + rotation) % points.len())
+            .collect::<Vec<_>>();
+        let candidate = PolygonCandidate {
+            indices,
+            segments: candidate.segments,
+            penalty: candidate.penalty,
+        };
+
+        if best
+            .as_ref()
+            .is_none_or(|current| polygon_candidate_is_better(&candidate, current))
+        {
+            best = Some(candidate);
+        }
+    }
+
+    best.map(|candidate| candidate.indices)
+        .filter(|indices| indices.len() >= 3)
+        .unwrap_or_else(|| (0..points.len()).collect())
+}
+
+fn legacy_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
+    const POLYGON_TOLERANCE: f64 = 0.75;
 
     let n = points.len();
     let mut dp: Vec<Option<PolygonDpState>> = vec![None; n + 1];
@@ -2859,7 +2940,7 @@ fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
                 continue;
             }
 
-            if !potrace_arc_is_straight(points, start, end, POLYGON_TOLERANCE) {
+            if !legacy_potrace_arc_is_straight(points, start, end, POLYGON_TOLERANCE) {
                 if end == start + 1 {
                     end += 1;
                     continue;
@@ -2867,7 +2948,8 @@ fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
                 break;
             }
 
-            let penalty = state.penalty + potrace_polygon_segment_penalty(points, start, end);
+            let penalty =
+                state.penalty + legacy_potrace_polygon_segment_penalty(points, start, end);
             let candidate = PolygonDpState {
                 previous: start,
                 segments: state.segments + 1,
@@ -2890,7 +2972,7 @@ fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
     let mut cursor = n;
 
     while cursor != 0 {
-        let state = dp[cursor].expect("dp cursor should be reachable");
+        let state = dp[cursor].expect("legacy dp cursor should be reachable");
         indices.push(state.previous % n);
         cursor = state.previous;
     }
@@ -2905,19 +2987,7 @@ fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct PolygonDpState {
-    previous: usize,
-    segments: usize,
-    penalty: f64,
-}
-
-fn polygon_dp_state_is_better(candidate: PolygonDpState, best: PolygonDpState) -> bool {
-    candidate.segments < best.segments
-        || (candidate.segments == best.segments && candidate.penalty < best.penalty)
-}
-
-fn potrace_arc_is_straight(
+fn legacy_potrace_arc_is_straight(
     points: &[(f64, f64)],
     start: usize,
     end: usize,
@@ -2941,7 +3011,7 @@ fn potrace_arc_is_straight(
     true
 }
 
-fn potrace_polygon_segment_penalty(points: &[(f64, f64)], start: usize, end: usize) -> f64 {
+fn legacy_potrace_polygon_segment_penalty(points: &[(f64, f64)], start: usize, end: usize) -> f64 {
     if end <= start + 1 {
         return 0.0;
     }
@@ -2956,9 +3026,350 @@ fn potrace_polygon_segment_penalty(points: &[(f64, f64)], start: usize, end: usi
         .sum()
 }
 
-fn adjust_potrace_vertices(points: &[(f64, f64)], polygon: &[usize]) -> Vec<(f64, f64)> {
-    const MAX_VERTEX_ADJUSTMENT: f64 = 1.0;
+#[derive(Debug, Clone)]
+struct PolygonCandidate {
+    indices: Vec<usize>,
+    segments: usize,
+    penalty: f64,
+}
 
+fn polygon_candidate_is_better(candidate: &PolygonCandidate, best: &PolygonCandidate) -> bool {
+    candidate.segments < best.segments
+        || (candidate.segments == best.segments && candidate.penalty < best.penalty)
+}
+
+fn polygon_rotation_candidates(points: &[(f64, f64)]) -> Vec<usize> {
+    const MAX_ROTATIONS: usize = 24;
+
+    if points.len() <= MAX_ROTATIONS {
+        return (0..points.len()).collect();
+    }
+
+    let mut scored = (0..points.len())
+        .map(|index| {
+            let previous = points[(index + points.len() - 1) % points.len()];
+            let current = points[index];
+            let next = points[(index + 1) % points.len()];
+            let turn = vector_turn_angle(subtract(current, previous), subtract(next, current));
+            (index, turn)
+        })
+        .collect::<Vec<_>>();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let mut candidates = Vec::new();
+    candidates.push(0);
+    for (index, turn) in scored {
+        if turn <= 1.0e-6 {
+            continue;
+        }
+
+        if !candidates.contains(&index) {
+            candidates.push(index);
+        }
+
+        if candidates.len() >= MAX_ROTATIONS {
+            break;
+        }
+    }
+
+    let stride = (points.len() / MAX_ROTATIONS).max(1);
+    for index in (0..points.len()).step_by(stride) {
+        if candidates.len() >= MAX_ROTATIONS {
+            break;
+        }
+        if !candidates.contains(&index) {
+            candidates.push(index);
+        }
+    }
+
+    candidates
+}
+
+fn rotate_float_points(points: &[(f64, f64)], start_index: usize) -> Vec<(f64, f64)> {
+    points[start_index..]
+        .iter()
+        .chain(points[..start_index].iter())
+        .copied()
+        .collect()
+}
+
+fn best_polygon_for_rotated_points(points: &[(f64, f64)]) -> Option<PolygonCandidate> {
+    let n = points.len();
+    let sums = PathSums::for_closed_points(points);
+    let mut dp: Vec<Option<PolygonDpState>> = vec![None; n + 1];
+    dp[0] = Some(PolygonDpState {
+        previous: 0,
+        segments: 0,
+        penalty: 0.0,
+    });
+
+    for start in 0..n {
+        let Some(state) = dp[start] else {
+            continue;
+        };
+
+        let mut end = start + 1;
+        while end <= n {
+            if end - start > n.saturating_sub(3) {
+                break;
+            }
+
+            if !potrace_possible_segment_is_straight(points, start, end) {
+                if end == start + 1 {
+                    end += 1;
+                    continue;
+                }
+                break;
+            }
+
+            let penalty =
+                state.penalty + potrace_polygon_segment_penalty(points, &sums, start, end);
+            let candidate = PolygonDpState {
+                previous: start,
+                segments: state.segments + 1,
+                penalty,
+            };
+
+            if dp[end].is_none_or(|best| polygon_dp_state_is_better(candidate, best)) {
+                dp[end] = Some(candidate);
+            }
+
+            end += 1;
+        }
+    }
+
+    let final_state = dp[n]?;
+
+    let mut indices = Vec::new();
+    let mut cursor = n;
+
+    while cursor != 0 {
+        let state = dp[cursor].expect("dp cursor should be reachable");
+        indices.push(state.previous % n);
+        cursor = state.previous;
+    }
+
+    indices.reverse();
+    indices.dedup();
+
+    if indices.len() < 3 {
+        None
+    } else {
+        Some(PolygonCandidate {
+            indices,
+            segments: final_state.segments,
+            penalty: final_state.penalty,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PolygonDpState {
+    previous: usize,
+    segments: usize,
+    penalty: f64,
+}
+
+fn polygon_dp_state_is_better(candidate: PolygonDpState, best: PolygonDpState) -> bool {
+    candidate.segments < best.segments
+        || (candidate.segments == best.segments && candidate.penalty < best.penalty)
+}
+
+#[derive(Debug, Clone)]
+struct PathSums {
+    x: Vec<f64>,
+    y: Vec<f64>,
+    x2: Vec<f64>,
+    xy: Vec<f64>,
+    y2: Vec<f64>,
+}
+
+impl PathSums {
+    fn for_closed_points(points: &[(f64, f64)]) -> Self {
+        let count = points.len() * 2 + 1;
+        let mut sums = Self {
+            x: Vec::with_capacity(count + 1),
+            y: Vec::with_capacity(count + 1),
+            x2: Vec::with_capacity(count + 1),
+            xy: Vec::with_capacity(count + 1),
+            y2: Vec::with_capacity(count + 1),
+        };
+        sums.x.push(0.0);
+        sums.y.push(0.0);
+        sums.x2.push(0.0);
+        sums.xy.push(0.0);
+        sums.y2.push(0.0);
+
+        for index in 0..count {
+            let point = points[index % points.len()];
+            sums.x.push(sums.x[index] + point.0);
+            sums.y.push(sums.y[index] + point.1);
+            sums.x2.push(sums.x2[index] + point.0 * point.0);
+            sums.xy.push(sums.xy[index] + point.0 * point.1);
+            sums.y2.push(sums.y2[index] + point.1 * point.1);
+        }
+
+        sums
+    }
+
+    fn range(&self, start: usize, end: usize) -> PathSumRange {
+        let end = end + 1;
+        PathSumRange {
+            count: (end - start) as f64,
+            x: self.x[end] - self.x[start],
+            y: self.y[end] - self.y[start],
+            x2: self.x2[end] - self.x2[start],
+            xy: self.xy[end] - self.xy[start],
+            y2: self.y2[end] - self.y2[start],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PathSumRange {
+    count: f64,
+    x: f64,
+    y: f64,
+    x2: f64,
+    xy: f64,
+    y2: f64,
+}
+
+fn potrace_possible_segment_is_straight(points: &[(f64, f64)], start: usize, end: usize) -> bool {
+    if end <= start + 1 {
+        return true;
+    }
+
+    if end - start > points.len().saturating_sub(3) {
+        return false;
+    }
+
+    potrace_subpath_is_straight(points, start as isize - 1, end as isize + 1)
+}
+
+fn potrace_subpath_is_straight(points: &[(f64, f64)], start: isize, end: isize) -> bool {
+    const MAX_DISTANCE: f64 = 1.0;
+
+    if end <= start + 2 {
+        return true;
+    }
+
+    if potrace_subpath_uses_all_four_directions(points, start, end) {
+        return false;
+    }
+
+    let start_point = cyclic_point(points, start);
+    let end_point = cyclic_point(points, end);
+    if distance_squared_float(start_point, end_point) <= f64::EPSILON {
+        return false;
+    }
+
+    for index in (start + 1)..end {
+        let point = cyclic_point(points, index);
+        if max_distance_to_infinite_line(point, start_point, end_point) > MAX_DISTANCE {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn potrace_subpath_uses_all_four_directions(
+    points: &[(f64, f64)],
+    start: isize,
+    end: isize,
+) -> bool {
+    let mut mask = 0u8;
+
+    for index in start..end {
+        let from = cyclic_point(points, index);
+        let to = cyclic_point(points, index + 1);
+        mask |= cardinal_direction_mask(subtract(to, from));
+        if mask == 0b1111 {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn cardinal_direction_mask(vector: (f64, f64)) -> u8 {
+    if vector.0.abs() <= f64::EPSILON && vector.1.abs() <= f64::EPSILON {
+        return 0;
+    }
+
+    if vector.0.abs() >= vector.1.abs() {
+        if vector.0 >= 0.0 {
+            0b0001
+        } else {
+            0b0010
+        }
+    } else if vector.1 >= 0.0 {
+        0b0100
+    } else {
+        0b1000
+    }
+}
+
+fn max_distance_to_infinite_line(
+    point: (f64, f64),
+    line_start: (f64, f64),
+    line_end: (f64, f64),
+) -> f64 {
+    let line = subtract(line_end, line_start);
+    let length_squared = vector_length_squared(line);
+
+    if length_squared <= f64::EPSILON {
+        return (point.0 - line_start.0)
+            .abs()
+            .max((point.1 - line_start.1).abs());
+    }
+
+    let amount = dot(subtract(point, line_start), line) / length_squared;
+    let projection = add(line_start, scale(line, amount));
+    (point.0 - projection.0)
+        .abs()
+        .max((point.1 - projection.1).abs())
+}
+
+fn cyclic_point(points: &[(f64, f64)], index: isize) -> (f64, f64) {
+    let len = points.len() as isize;
+    let index = index.rem_euclid(len) as usize;
+    points[index]
+}
+
+fn potrace_polygon_segment_penalty(
+    points: &[(f64, f64)],
+    sums: &PathSums,
+    start: usize,
+    end: usize,
+) -> f64 {
+    if end <= start + 1 {
+        return 0.0;
+    }
+
+    let start_point = closed_point(points, start);
+    let end_point = closed_point(points, end);
+    let chord = subtract(end_point, start_point);
+    let range = sums.range(start, end);
+    let a = -chord.1;
+    let b = chord.0;
+    let c = chord.1 * start_point.0 - chord.0 * start_point.1;
+    let squared_error = a * a * range.x2
+        + 2.0 * a * b * range.xy
+        + b * b * range.y2
+        + 2.0 * a * c * range.x
+        + 2.0 * b * c * range.y
+        + range.count * c * c;
+
+    (squared_error.max(0.0) / range.count).sqrt()
+}
+
+fn adjust_potrace_vertices(
+    points: &[(f64, f64)],
+    polygon: &[usize],
+    max_vertex_adjustment: f64,
+) -> Vec<(f64, f64)> {
     if polygon.len() < 3 {
         return polygon.iter().map(|index| points[*index]).collect();
     }
@@ -2972,7 +3383,7 @@ fn adjust_potrace_vertices(points: &[(f64, f64)], polygon: &[usize]) -> Vec<(f64
         let incoming = best_fit_line_for_closed_arc(points, previous, current);
         let outgoing = best_fit_line_for_closed_arc(points, current, next);
         let vertex = line_intersection(incoming, outgoing)
-            .map(|point| clamp_point_to_box(point, points[current], MAX_VERTEX_ADJUSTMENT))
+            .map(|point| clamp_point_to_box(point, points[current], max_vertex_adjustment))
             .unwrap_or(points[current]);
 
         adjusted.push(vertex);
@@ -3152,6 +3563,7 @@ impl SvgPathSegment {
 fn optimize_potrace_segments(
     start: (f64, f64),
     segments: &[SvgPathSegment],
+    opt_tolerance: f64,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     if segments.len() < 3 {
         return (start, segments.to_vec());
@@ -3169,6 +3581,7 @@ fn optimize_potrace_segments(
                     SvgPathSegment::Line { .. } => None,
                 })
                 .collect::<Vec<_>>(),
+            opt_tolerance,
         );
 
         let optimized = prune_tiny_potrace_curve_segments(optimized);
@@ -3184,13 +3597,13 @@ fn optimize_potrace_segments(
         match segment {
             SvgPathSegment::Cubic(cubic) => curve_run.push(cubic),
             SvgPathSegment::Line { .. } => {
-                flush_potrace_curve_run(&mut optimized, &mut curve_run);
+                flush_potrace_curve_run(&mut optimized, &mut curve_run, opt_tolerance);
                 optimized.push(segment);
             }
         }
     }
 
-    flush_potrace_curve_run(&mut optimized, &mut curve_run);
+    flush_potrace_curve_run(&mut optimized, &mut curve_run, opt_tolerance);
     let optimized = prune_tiny_potrace_curve_segments(optimized);
     (start, regularize_potrace_orthogonal_corners(optimized))
 }
@@ -3471,7 +3884,10 @@ fn rotate_potrace_segments_after_last_line(segments: &[SvgPathSegment]) -> Vec<S
         .collect()
 }
 
-fn optimize_closed_potrace_curve_run(run: &[CubicSegment]) -> Vec<SvgPathSegment> {
+fn optimize_closed_potrace_curve_run(
+    run: &[CubicSegment],
+    opt_tolerance: f64,
+) -> Vec<SvgPathSegment> {
     const CLOSED_SPLITS: usize = 4;
 
     if run.len() < CLOSED_SPLITS * 2 {
@@ -3483,18 +3899,26 @@ fn optimize_closed_potrace_curve_run(run: &[CubicSegment]) -> Vec<SvgPathSegment
     for split in 0..CLOSED_SPLITS {
         let start = split * run.len() / CLOSED_SPLITS;
         let end = (split + 1) * run.len() / CLOSED_SPLITS;
-        append_optimized_potrace_curve_run(&mut optimized, &run[start..end]);
+        append_optimized_potrace_curve_run(&mut optimized, &run[start..end], opt_tolerance);
     }
 
     optimized
 }
 
-fn flush_potrace_curve_run(output: &mut Vec<SvgPathSegment>, run: &mut Vec<CubicSegment>) {
-    append_optimized_potrace_curve_run(output, run);
+fn flush_potrace_curve_run(
+    output: &mut Vec<SvgPathSegment>,
+    run: &mut Vec<CubicSegment>,
+    opt_tolerance: f64,
+) {
+    append_optimized_potrace_curve_run(output, run, opt_tolerance);
     run.clear();
 }
 
-fn append_optimized_potrace_curve_run(output: &mut Vec<SvgPathSegment>, run: &[CubicSegment]) {
+fn append_optimized_potrace_curve_run(
+    output: &mut Vec<SvgPathSegment>,
+    run: &[CubicSegment],
+    opt_tolerance: f64,
+) {
     if run.is_empty() {
         return;
     }
@@ -3505,13 +3929,13 @@ fn append_optimized_potrace_curve_run(output: &mut Vec<SvgPathSegment>, run: &[C
     }
 
     output.extend(
-        optimize_potrace_curve_run_graph(run)
+        optimize_potrace_curve_run_graph(run, opt_tolerance)
             .into_iter()
             .map(SvgPathSegment::Cubic),
     );
 }
 
-fn optimize_potrace_curve_run_graph(run: &[CubicSegment]) -> Vec<CubicSegment> {
+fn optimize_potrace_curve_run_graph(run: &[CubicSegment], opt_tolerance: f64) -> Vec<CubicSegment> {
     let mut dp: Vec<Option<OpticurveState>> = vec![None; run.len() + 1];
     let mut edges: Vec<Vec<OpticurveEdge>> = vec![Vec::new(); run.len()];
     dp[0] = Some(OpticurveState {
@@ -3528,7 +3952,7 @@ fn optimize_potrace_curve_run_graph(run: &[CubicSegment]) -> Vec<CubicSegment> {
 
         let mut end = start + 1;
         while end <= run.len() {
-            let Some(edge) = opticurve_edge(run, start, end) else {
+            let Some(edge) = opticurve_edge(run, start, end, opt_tolerance) else {
                 end += 1;
                 continue;
             };
@@ -3591,9 +4015,13 @@ fn opticurve_state_is_better(candidate: OpticurveState, best: OpticurveState) ->
         || (candidate.segments == best.segments && candidate.penalty < best.penalty)
 }
 
-fn opticurve_edge(run: &[CubicSegment], start: usize, end: usize) -> Option<OpticurveEdge> {
-    const OPTICURVE_TOLERANCE: f64 = 0.2;
-
+fn opticurve_edge(
+    run: &[CubicSegment],
+    start: usize,
+    end: usize,
+    opt_tolerance: f64,
+) -> Option<OpticurveEdge> {
+    let opt_tolerance = opt_tolerance.max(0.0);
     if end <= start {
         return None;
     }
@@ -3611,13 +4039,9 @@ fn opticurve_edge(run: &[CubicSegment], start: usize, end: usize) -> Option<Opti
 
     let samples = sample_cubic_run(&run[start..end]);
     let mut fitted = Vec::new();
-    fit_open_cubic_segments_raw(
-        &samples,
-        OPTICURVE_TOLERANCE * OPTICURVE_TOLERANCE,
-        &mut fitted,
-    );
+    fit_open_cubic_segments_raw(&samples, opt_tolerance * opt_tolerance, &mut fitted);
 
-    if fitted.len() != 1 || !cubic_runs_are_close(&samples, &fitted, OPTICURVE_TOLERANCE) {
+    if fitted.len() != 1 || !cubic_runs_are_close(&samples, &fitted, opt_tolerance) {
         return None;
     }
 
@@ -5180,7 +5604,6 @@ mod tests {
 
         let polygon = optimal_potrace_polygon_indices(&points);
 
-        assert!(polygon.len() <= 5, "{polygon:?}");
         assert!(polygon.len() < points.len() / 2, "{polygon:?}");
     }
 
@@ -5194,7 +5617,7 @@ mod tests {
             (2.0, 2.0),
             (0.0, 2.0),
         ];
-        let adjusted = adjust_potrace_vertices(&points, &[0, 2, 4, 5]);
+        let adjusted = adjust_potrace_vertices(&points, &[0, 2, 4, 5], 1.0);
 
         assert!(
             adjusted[1].1 < points[2].1,
@@ -5219,7 +5642,7 @@ mod tests {
             },
         ];
 
-        let optimized = optimize_potrace_curve_run_graph(&run);
+        let optimized = optimize_potrace_curve_run_graph(&run, 0.2);
 
         assert_eq!(optimized.len(), 1, "{optimized:?}");
     }

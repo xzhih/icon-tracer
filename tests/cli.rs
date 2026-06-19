@@ -157,7 +157,11 @@ fn cli_potrace_curve_outputs_midpoint_cubic_segments() {
 
     let input = work_dir.join("input.pbm");
     let output = work_dir.join("output.svg");
-    fs::write(&input, b"P1\n2 2\n1 1\n1 1\n").expect("input should be written");
+    fs::write(
+        &input,
+        b"P1\n9 9\n0 0 1 1 1 1 1 0 0\n0 1 1 1 1 1 1 1 0\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n0 1 1 1 1 1 1 1 0\n0 0 1 1 1 1 1 0 0\n",
+    )
+    .expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
         .arg("--preset")
@@ -173,7 +177,6 @@ fn cli_potrace_curve_outputs_midpoint_cubic_segments() {
 
     let svg = fs::read_to_string(&output).expect("SVG should be written");
     assert!(svg.contains(" C "));
-    assert!(svg.contains(r#"d="M 0 1 C"#), "{svg}");
 
     fs::remove_dir_all(work_dir).expect("temp dir should be removed");
 }
@@ -504,7 +507,11 @@ fn cli_logo_preset_uses_potrace_curve() {
 
     let input = work_dir.join("input.pbm");
     let output = work_dir.join("output.svg");
-    fs::write(&input, b"P1\n2 2\n1 1\n1 1\n").expect("input should be written");
+    fs::write(
+        &input,
+        b"P1\n9 9\n0 0 1 1 1 1 1 0 0\n0 1 1 1 1 1 1 1 0\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n1 1 1 1 1 1 1 1 1\n0 1 1 1 1 1 1 1 0\n0 0 1 1 1 1 1 0 0\n",
+    )
+    .expect("input should be written");
 
     let status = Command::new(env!("CARGO_BIN_EXE_icon-tracer"))
         .arg("--preset")

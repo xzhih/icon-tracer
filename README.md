@@ -51,7 +51,7 @@ The trace pipeline is:
    - `subpixel`: marching squares over the binary mask, with half-pixel edge samples.
    - `scalar`: marching squares over luma samples, with interpolated threshold crossings.
 4. Loop assembly, hole detection by signed area, and `--turd-size` filtering.
-5. Geometric simplification using `--opt-tolerance`.
+5. Geometric simplification using `--opt-tolerance` for non-Potrace curve modes.
 6. Curve generation:
    - `polygon`: straight SVG lines.
    - `smooth`: local cubic corner rounding.
@@ -67,10 +67,10 @@ The trace pipeline is:
 - `--smooth` rounds polygon corners with cubic Bézier segments.
 - `--spline` emits a continuous closed cubic Bézier spline through path points.
 - `--fit` splits closed paths at sharp corners, then adaptively fits bounded cubic Bézier segments to continuous runs.
-- `--curve potrace` is the icon/logo-oriented path. It first finds a lower-complexity polygon from the contour, adjusts polygon vertices from neighboring fitted lines, applies Potrace-style alpha smoothing with corner preservation, then uses a graph search to merge compatible adjacent cubic curves.
+- `--curve potrace` is the icon/logo-oriented path. It first finds a lower-complexity polygon from the contour with a Potrace-paper-inspired possible-segment graph, adjusts polygon vertices from neighboring fitted lines, applies alpha smoothing with corner preservation, then uses a graph search to merge compatible adjacent cubic curves.
 - `--curve polygon|smooth|spline|fit|potrace` selects the curve output mode; `--smooth`, `--spline`, and `--fit` are shortcuts.
 - `--turd-size N` drops traced components whose area is at most `N` pixels.
-- `--opt-tolerance N` simplifies closed paths with a geometric tolerance. This also controls how aggressively subpixel contours smooth away stair steps.
+- `--opt-tolerance N` controls geometric simplification for the project-specific contour modes. With `--contour pixel --curve potrace`, the CLI keeps the extracted pixel contour intact and passes `N` to the opticurve merge stage, matching Potrace's option semantics more closely for the black-box parity path.
 - `--optimize-icon` runs an internal feedback loop over icon-oriented contour/tolerance candidates, scores each candidate against the source foreground mask, and writes the best SVG. This currently supports PNG/JPEG inputs because it needs RGBA/luma samples.
 - `--isolate-foreground` is only valid with `--optimize-icon`. It uses deterministic border-color and edge-component heuristics to remove app-icon backgrounds before scoring. It is intentionally opt-in because it does not perform semantic logo recognition.
 - `--optimization-report path.json` writes the internal candidate metrics when `--optimize-icon` is enabled.
@@ -132,6 +132,18 @@ foreground error, false-positive/false-negative rates, precision, recall, and
 IoU. That makes it useful for parameter selection during tracing. The
 `scripts/vector-quality.py` round-trip still remains the final visual guard
 because it compares rendered SVG pixels.
+
+For black-box Potrace parity work, run:
+
+```sh
+scripts/potrace-parity.py --no-build
+```
+
+It generates PBM fixtures, runs local Potrace 1.16 with explicit defaults, runs
+`icon-tracer` with `--contour pixel --curve potrace --opt-tolerance 0.2`, renders
+both outputs to binary masks, and records pixel-error plus SVG structure metrics
+under `target/potrace-parity/`. This is a development oracle only; Potrace is not
+called by the Rust runtime.
 
 ## Presets
 

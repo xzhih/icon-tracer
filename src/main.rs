@@ -5,8 +5,8 @@ use std::process::ExitCode;
 
 use icon_tracer::{
     optimize_icon_trace, trace_bitmap, trace_scalar_field, AlphaBackground, Bitmap, ContourMode,
-    CurveMode, IconOptimizationResult, RasterOptions, RgbaImage, SvgOptions, ThresholdMode,
-    TraceOptions,
+    CurveMode, IconOptimizationResult, RasterOptions, RgbaImage, SvgOptions, SvgRenderOptions,
+    ThresholdMode, TraceOptions,
 };
 
 fn main() -> ExitCode {
@@ -163,6 +163,23 @@ fn run() -> Result<(), String> {
     let contour_mode = contour_mode.unwrap_or(defaults.contour_mode);
     let turd_size = turd_size.unwrap_or(defaults.turd_size);
     let opt_tolerance = opt_tolerance.unwrap_or(defaults.opt_tolerance);
+    let pixel_potrace_mode =
+        curve_mode == CurveMode::Potrace && contour_mode == ContourMode::Pixel && !optimize_icon;
+    let trace_opt_tolerance = if pixel_potrace_mode {
+        0.0
+    } else {
+        opt_tolerance
+    };
+    let svg_opt_tolerance = if pixel_potrace_mode {
+        opt_tolerance
+    } else {
+        SvgRenderOptions::default().opt_tolerance
+    };
+    let svg_render_options = SvgRenderOptions {
+        curve_mode,
+        opt_tolerance: svg_opt_tolerance,
+        pixel_potrace: pixel_potrace_mode,
+    };
 
     let input = fs::read(&paths[0])
         .map_err(|error| format!("failed to read {}: {error}", paths[0].display()))?;
@@ -173,7 +190,7 @@ fn run() -> Result<(), String> {
     };
     let trace_options = TraceOptions {
         turd_size,
-        opt_tolerance,
+        opt_tolerance: trace_opt_tolerance,
         contour_mode,
     };
     let svg = if optimize_icon {
@@ -207,11 +224,11 @@ fn run() -> Result<(), String> {
         let field = image.to_scalar_field(alpha_background);
         trace_scalar_field(&field, raster_options, trace_options)
             .map_err(|error| format!("failed to trace {}: {error}", paths[0].display()))?
-            .to_svg_with_options(SvgOptions { curve_mode })
+            .to_svg_with_render_options(svg_render_options)
     } else {
         let bitmap = Bitmap::from_bytes(&input, raster_options)
             .map_err(|error| format!("failed to parse {}: {error}", paths[0].display()))?;
-        trace_bitmap(&bitmap, trace_options).to_svg_with_options(SvgOptions { curve_mode })
+        trace_bitmap(&bitmap, trace_options).to_svg_with_render_options(svg_render_options)
     };
 
     fs::write(&paths[1], svg)
