@@ -75,10 +75,10 @@ PARITY_LIMITS = {
         "icon_d_bytes": 89,
     },
     "diagonal_bar": {
-        "mask_ae_pixels": 50,
+        "mask_ae_pixels": 48,
         "icon_command_count": 11,
-        "icon_svg_point_count": 26,
-        "icon_d_bytes": 239,
+        "icon_svg_point_count": 24,
+        "icon_d_bytes": 222,
     },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")

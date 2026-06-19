@@ -779,6 +779,7 @@ pub struct TraceOptions {
     pub turd_size: usize,
     pub opt_tolerance: f64,
     pub contour_mode: ContourMode,
+    pub preserve_collinear: bool,
 }
 
 impl Default for TraceOptions {
@@ -787,6 +788,7 @@ impl Default for TraceOptions {
             turd_size: 0,
             opt_tolerance: 0.0,
             contour_mode: ContourMode::Pixel,
+            preserve_collinear: false,
         }
     }
 }
@@ -867,6 +869,7 @@ impl Default for IconOptimizeOptions {
                 turd_size: 2,
                 opt_tolerance: 0.75,
                 contour_mode: ContourMode::Subpixel,
+                preserve_collinear: false,
             },
             svg_options: SvgOptions {
                 curve_mode: CurveMode::Potrace,
@@ -1662,8 +1665,12 @@ fn trace_pixel_bitmap(bitmap: &Bitmap, options: TraceOptions) -> TracedBitmap {
         }
 
         if let Some(points) = trace_path(edge, &outgoing, &mut visited) {
-            let points =
-                optimize_path(&simplify_collinear(&points), options.opt_tolerance.max(0.0));
+            let points = if options.preserve_collinear {
+                points
+            } else {
+                simplify_collinear(&points)
+            };
+            let points = optimize_path(&points, options.opt_tolerance.max(0.0));
 
             if points.len() >= 3 {
                 let area2 = signed_area2(&points);
@@ -2877,20 +2884,14 @@ fn path_to_potrace_svg_data(
         return path_to_polygon_svg_data(path);
     }
 
-    let polygon = if pixel_potrace {
-        optimal_potrace_polygon_indices(&path.points)
-    } else {
-        legacy_potrace_polygon_indices(&path.points)
-    };
-    let max_vertex_adjustment = if pixel_potrace { 0.5 } else { 1.0 };
-    let vertices = adjust_potrace_vertices(&path.points, &polygon, max_vertex_adjustment);
-    let (mut start, mut segments) = smooth_potrace_vertices(&vertices)?;
-
     if pixel_potrace {
-        let (start, segments) =
-            choose_pixel_potrace_segments(path, start, segments, opt_tolerance, canvas_size);
+        let (start, segments) = choose_pixel_potrace_point_set(path, opt_tolerance, canvas_size)?;
         return Some(compact_svg_path_data_from_segments(start, &segments));
     }
+
+    let polygon = legacy_potrace_polygon_indices(&path.points);
+    let vertices = adjust_potrace_vertices(&path.points, &polygon, 1.0);
+    let (mut start, mut segments) = smooth_potrace_vertices(&vertices)?;
 
     if segments
         .iter()
@@ -2907,6 +2908,70 @@ fn path_to_potrace_svg_data(
 
     let (start, segments) = optimize_potrace_segments(start, &segments, opt_tolerance);
     Some(svg_path_data_from_segments(start, &segments))
+}
+
+fn choose_pixel_potrace_point_set(
+    path: &TracePath,
+    opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let mut best =
+        pixel_potrace_segments_for_points(path, &path.points, opt_tolerance, canvas_size)?;
+    let simplified = simplify_collinear_float_points(&path.points);
+
+    if simplified.len() >= 3 && simplified.len() < path.points.len() {
+        if let Some(candidate) =
+            pixel_potrace_segments_for_points(path, &simplified, opt_tolerance, canvas_size)
+        {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                best = candidate;
+            }
+        }
+    }
+
+    Some(best)
+}
+
+fn pixel_potrace_segments_for_points(
+    reference_path: &TracePath,
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = optimal_potrace_polygon_indices(points);
+    let vertices = adjust_potrace_vertices(points, &polygon, 0.5);
+    let (start, segments) = smooth_potrace_vertices(&vertices)?;
+
+    Some(choose_pixel_potrace_segments(
+        reference_path,
+        start,
+        segments,
+        opt_tolerance,
+        canvas_size,
+    ))
+}
+
+fn simplify_collinear_float_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    const EPSILON: f64 = 1.0e-9;
+
+    if points.len() <= 2 {
+        return points.to_vec();
+    }
+
+    let mut simplified = Vec::new();
+    for index in 0..points.len() {
+        let previous = points[(index + points.len() - 1) % points.len()];
+        let current = points[index];
+        let next = points[(index + 1) % points.len()];
+        let incoming = subtract(current, previous);
+        let outgoing = subtract(next, current);
+
+        if cross(incoming, outgoing).abs() > EPSILON {
+            simplified.push(current);
+        }
+    }
+
+    simplified
 }
 
 fn choose_pixel_potrace_segments(
@@ -7398,6 +7463,33 @@ mod tests {
             &shorter_wrong,
             &best
         ));
+    }
+
+    #[test]
+    fn pixel_trace_can_preserve_collinear_boundary_points() {
+        let bitmap =
+            Bitmap::from_rows(3, 1, &[true, true, true]).expect("bitmap dimensions should match");
+        let simplified = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 0,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: false,
+            },
+        );
+        let preserved = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 0,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+
+        assert_eq!(simplified.paths[0].points.len(), 4);
+        assert_eq!(preserved.paths[0].points.len(), 8);
     }
 
     #[test]

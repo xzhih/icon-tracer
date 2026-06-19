@@ -192,6 +192,7 @@ fn run() -> Result<(), String> {
         turd_size,
         opt_tolerance: trace_opt_tolerance,
         contour_mode,
+        preserve_collinear: false,
     };
     let svg = if optimize_icon {
         let image = RgbaImage::from_bytes(&input)
@@ -228,6 +229,10 @@ fn run() -> Result<(), String> {
     } else {
         let bitmap = Bitmap::from_bytes(&input, raster_options)
             .map_err(|error| format!("failed to parse {}: {error}", paths[0].display()))?;
+        let mut trace_options = trace_options;
+        if pixel_potrace_mode && bitmap.width().saturating_mul(bitmap.height()) >= 64 * 64 {
+            trace_options.preserve_collinear = true;
+        }
         trace_bitmap(&bitmap, trace_options).to_svg_with_render_options(svg_render_options)
     };
 
