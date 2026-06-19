@@ -986,6 +986,19 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
             if one_decimal.len() < best.len() {
                 best = one_decimal;
             }
+
+            if path_data_has_quadratic_commands(&one_decimal_path_data) {
+                if let Some(snapped_path_data) =
+                    snap_near_integer_one_decimal_svg_path_data(&one_decimal_path_data)
+                {
+                    let snapped = format!(
+                        r#"<path fill="black" fill-rule="evenodd" d="{snapped_path_data}"/>"#
+                    );
+                    if snapped.len() < best.len() {
+                        best = snapped;
+                    }
+                }
+            }
         }
     }
 
@@ -3827,6 +3840,7 @@ fn finish_potrace_segments(
     max_linear_deviation: f64,
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     let optimized = cleanup_potrace_segments(segments, max_linear_deviation);
+    let start = cleanup_potrace_start(start, &optimized);
     if optimized
         .iter()
         .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
@@ -3836,10 +3850,13 @@ fn finish_potrace_segments(
 
     let (start, optimized) =
         optimize_mixed_potrace_curve_runs_once(start, &optimized, opt_tolerance);
-    (
-        start,
-        cleanup_potrace_segments(optimized, max_linear_deviation),
-    )
+    let optimized = cleanup_potrace_segments(optimized, max_linear_deviation);
+    let start = cleanup_potrace_start(start, &optimized);
+    (start, optimized)
+}
+
+fn cleanup_potrace_start(start: (f64, f64), segments: &[SvgPathSegment]) -> (f64, f64) {
+    segments.first().map_or(start, |segment| segment.start())
 }
 
 fn optimize_mixed_potrace_curve_runs_once(
@@ -3985,18 +4002,30 @@ fn potrace_segment_is_tiny_spike(segments: &[SvgPathSegment], index: usize) -> b
     const TINY_BOUNDS_DIAGONAL: f64 = 2.1;
     const MIN_NEIGHBOR_CHORD_LENGTH: f64 = 4.0;
 
-    if index == 0 || index + 1 >= segments.len() {
+    if segments.len() < 3 {
         return false;
     }
 
+    let previous_index = (index + segments.len() - 1) % segments.len();
+    let next_index = (index + 1) % segments.len();
     let (
         SvgPathSegment::Cubic(previous),
         SvgPathSegment::Cubic(current),
         SvgPathSegment::Cubic(next),
-    ) = (segments[index - 1], segments[index], segments[index + 1])
+    ) = (
+        segments[previous_index],
+        segments[index],
+        segments[next_index],
+    )
     else {
         return false;
     };
+
+    if distance_squared_float(previous.end, current.start) > 1.0e-9
+        || distance_squared_float(current.end, next.start) > 1.0e-9
+    {
+        return false;
+    }
 
     cubic_chord_length(current) <= TINY_CHORD_LENGTH
         && cubic_bounds_diagonal(current) <= TINY_BOUNDS_DIAGONAL
@@ -5319,6 +5348,39 @@ fn one_decimal_svg_path_data(data: &str) -> Option<String> {
             format_compact_float_with_precision(value, 1)
         };
         tokens.push(token);
+        index = end;
+    }
+
+    Some(minify_svg_path_tokens(&tokens))
+}
+
+fn snap_near_integer_one_decimal_svg_path_data(data: &str) -> Option<String> {
+    const MAX_SNAP_DISTANCE: f64 = 0.1 + 1.0e-9;
+
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+
+    while index < data.len() {
+        let byte = data.as_bytes()[index];
+        if byte.is_ascii_whitespace() || byte == b',' {
+            index += 1;
+            continue;
+        }
+
+        if byte.is_ascii_alphabetic() {
+            tokens.push(data[index..index + 1].to_owned());
+            index += 1;
+            continue;
+        }
+
+        let end = svg_number_token_end(data, index)?;
+        let value = data[index..end].parse::<f64>().ok()?;
+        let nearest = value.round();
+        if (value - nearest).abs() <= MAX_SNAP_DISTANCE {
+            tokens.push(format_compact_float(nearest));
+        } else {
+            tokens.push(data[index..end].to_owned());
+        }
         index = end;
     }
 
@@ -7518,7 +7580,8 @@ mod tests {
         let path = svg_path_element(triangle, true);
 
         assert!(path.contains("-85.3"), "{path}");
-        assert!(path.contains("q1-1.1"), "{path}");
+        assert!(path.contains("q1-1 2 0"), "{path}");
+        assert!(!path.contains("q1-1.1"), "{path}");
         assert!(path.len() < svg_path_element(triangle, false).len());
     }
 
@@ -7725,6 +7788,30 @@ mod tests {
         let pruned = prune_tiny_potrace_curve_segments(segments);
 
         assert_eq!(pruned.len(), 4);
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_removes_tiny_spike_at_closed_start() {
+        let segments = vec![
+            SvgPathSegment::Cubic(CubicSegment {
+                start: (0.0, 0.0),
+                control1: (0.0, -0.4),
+                control2: (0.0, -1.2),
+                end: (0.0, -1.8),
+            }),
+            SvgPathSegment::Cubic(test_cubic((0.0, -1.8), (12.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((12.0, 0.0), (12.0, 12.0))),
+            SvgPathSegment::Cubic(test_cubic((12.0, 12.0), (-12.0, 0.0))),
+            SvgPathSegment::Cubic(test_cubic((-12.0, 0.0), (0.0, 0.0))),
+        ];
+
+        let pruned = prune_tiny_potrace_curve_segments(segments.clone());
+        let cleaned = cleanup_potrace_segments(segments, PIXEL_POTRACE_LINEAR_DEVIATION);
+        let start = cleanup_potrace_start((0.0, 0.0), &cleaned);
+
+        assert_eq!(pruned.len(), 4);
+        assert_eq!(pruned[0].start(), (0.0, -1.8));
+        assert_eq!(start, cleaned[0].start());
     }
 
     #[test]
