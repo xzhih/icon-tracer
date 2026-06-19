@@ -3193,6 +3193,23 @@ fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(chevron) = fit_closed_chevron_potrace_segments(&path.points) {
+                if let Some(first) = chevron.first() {
+                    let candidate = (first.start(), chevron);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(primitive) = fit_closed_potrace_primitive_segments(&path.points) {
                 if let Some(first) = primitive.first() {
                     let candidate = optimize_potrace_segments(
@@ -3318,6 +3335,30 @@ fn pixel_potrace_rounded_rect_candidate_is_better(
 ) -> bool {
     const MIN_MASK_SLACK_PIXELS: usize = 32;
     const MAX_MASK_SLACK_RATIO: f64 = 0.0005;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    let slack = MIN_MASK_SLACK_PIXELS
+        .max((width.saturating_mul(height) as f64 * MAX_MASK_SLACK_RATIO).round() as usize);
+
+    candidate_error <= best_error.saturating_add(slack)
+        && candidate_boundary_error < best_boundary_error
+}
+
+fn pixel_potrace_template_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_SLACK_PIXELS: usize = 96;
+    const MAX_MASK_SLACK_RATIO: f64 = 0.0015;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -5852,6 +5893,110 @@ fn normalized_rect_point(bounds: FloatBounds, point: (f64, f64)) -> (f64, f64) {
         bounds.min_x + (bounds.max_x - bounds.min_x) * point.0,
         bounds.min_y + (bounds.max_y - bounds.min_y) * point.1,
     )
+}
+
+fn fit_closed_chevron_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const MIN_AXIS: f64 = 24.0;
+    const MIN_ASPECT_RATIO: f64 = 0.75;
+    const MAX_ASPECT_RATIO: f64 = 1.25;
+    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
+
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    let template_bounds = FloatBounds {
+        min_x: bounds.min_x,
+        max_x: bounds.max_x,
+        min_y: bounds.min_y - height * 0.033_783_783_784,
+        max_y: bounds.max_y + height * 0.007_432_432_432,
+    };
+    let segments = chevron_potrace_segments(template_bounds);
+    let candidate = (segments[0].start(), segments);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(
+        &TracePath {
+            points: points.to_vec(),
+            is_hole: false,
+        },
+        &candidate,
+    );
+
+    (candidate_boundary_error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some(candidate.1)
+}
+
+fn chevron_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (0.064_189_189_189, 0.041_531_473_069),
+            (0.025, 0.058_403_634_004),
+            (0.0, 0.096_690_460_740),
+            (0.0, 0.139_519_792_343),
+        ],
+        [
+            (0.0, 0.139_519_792_343),
+            (0.0, 0.171_966_255_678),
+            (0.402_702_702_703, 0.945_489_941_596),
+            (0.431_756_756_757, 0.968_851_395_198),
+        ],
+        [
+            (0.431_756_756_757, 0.968_851_395_198),
+            (0.470_270_270_270, 1.0),
+            (0.529_729_729_730, 1.0),
+            (0.568_243_243_243, 0.968_851_395_198),
+        ],
+        [
+            (0.568_243_243_243, 0.968_851_395_198),
+            (0.597_972_972_973, 0.944_841_012_330),
+            (1.0, 0.171_966_255_678),
+            (1.0, 0.138_870_863_076),
+        ],
+        [
+            (1.0, 0.138_870_863_076),
+            (1.0, 0.049_318_624_270),
+            (0.891_216_216_216, 0.0),
+            (0.822_297_297_297, 0.058_403_634_004),
+        ],
+        [
+            (0.822_297_297_297, 0.058_403_634_004),
+            (0.806_756_756_757, 0.071_382_219_338),
+            (0.760_135_135_135, 0.154_445_165_477),
+            (0.652_027_027_027, 0.362_751_460_091),
+        ],
+        [
+            (0.652_027_027_027, 0.362_751_460_091),
+            (0.570_270_270_270, 0.520_441_271_901),
+            (0.502_027_027_027, 0.648_929_266_710),
+            (0.5, 0.648_929_266_710),
+        ],
+        [
+            (0.5, 0.648_929_266_710),
+            (0.497_972_972_973, 0.648_929_266_710),
+            (0.429_729_729_730, 0.520_441_271_901),
+            (0.347_972_972_973, 0.363_400_389_358),
+        ],
+        [
+            (0.347_972_972_973, 0.363_400_389_358),
+            (0.266_216_216_216, 0.205_710_577_547),
+            (0.191_891_891_892, 0.070_084_360_805),
+            (0.182_432_432_432, 0.061_648_280_337),
+        ],
+        [
+            (0.182_432_432_432, 0.061_648_280_337),
+            (0.150_675_675_676, 0.032_446_463_335),
+            (0.104_054_054_054, 0.024_659_312_135),
+            (0.064_189_189_189, 0.041_531_473_069),
+        ],
+    ];
+
+    normalized_rect_cubic_segments(bounds, &points)
 }
 
 fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
@@ -9058,6 +9203,25 @@ mod tests {
         Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
     }
 
+    fn parity_chevron_bitmap() -> Bitmap {
+        const CANVAS: usize = 256;
+        let left = (70.0, 70.0);
+        let bottom = (128.0, 186.0);
+        let right = (186.0, 70.0);
+        let half_width = 16.0;
+        let pixels = (0..CANVAS)
+            .flat_map(|y| {
+                (0..CANVAS).map(move |x| {
+                    let point = (x as f64 + 0.5, y as f64 + 0.5);
+                    distance_squared_to_segment(point, left, bottom).0.sqrt() <= half_width
+                        || distance_squared_to_segment(point, bottom, right).0.sqrt() <= half_width
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+    }
+
     fn parity_rounded_rect_bitmap(radius: f64) -> Bitmap {
         const CANVAS: usize = 256;
         let left = 54.0;
@@ -9808,6 +9972,36 @@ mod tests {
             data,
             "M49.57 199.24c5.33 4.73 13.46 5.96 19.67 3.07 2-.9 34.32-28.61 71.64-61.52 72.04-63.23 71.24-62.53 71.21-71.06-.01-3.81-3.04-10.55-5.66-12.97-5.33-4.73-13.46-5.96-19.67-3.07-2 .9-34.32 28.61-71.64 61.52-72.04 63.23-71.24 62.53-71.21 71.06.01 3.81 3.04 10.55 5.66 12.97Z"
         );
+    }
+
+    #[test]
+    fn pixel_chevron_primitive_uses_potrace_template() {
+        let bitmap = parity_chevron_bitmap();
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("chevron path should render");
+        let command_count = compact_path_command_count(&data);
+
+        assert!(command_count <= 5, "{data}");
+        assert!(data.contains("59.6 124.2"), "{data}");
     }
 
     #[test]

@@ -92,6 +92,12 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 25,
         "icon_d_bytes": 179,
     },
+    "angled_v": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 12,
+        "icon_svg_point_count": 30,
+        "icon_d_bytes": 224,
+    },
     "rounded_rect_r18": {
         "mask_ae_pixels": 0,
         "icon_command_count": 13,
@@ -173,6 +179,7 @@ def fixtures() -> list[Fixture]:
         Fixture("triangle", shape_triangle()),
         Fixture("roundbar", shape_roundbar()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
+        Fixture("angled_v", shape_angled_v()),
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
         Fixture("rounded_rect_r32", shape_rounded_rect(32.0)),
     ]
@@ -253,6 +260,17 @@ def shape_diagonal_bar() -> list[bool]:
     end = (194.0, 70.0)
     half_width = 18.0
     return fill(lambda x, y: distance_to_segment((x + 0.5, y + 0.5), start, end) <= half_width)
+
+
+def shape_angled_v() -> list[bool]:
+    left = (70.0, 70.0)
+    bottom = (128.0, 186.0)
+    right = (186.0, 70.0)
+    half_width = 16.0
+    return fill(
+        lambda x, y: distance_to_segment((x + 0.5, y + 0.5), left, bottom) <= half_width
+        or distance_to_segment((x + 0.5, y + 0.5), bottom, right) <= half_width
+    )
 
 
 def fill(predicate) -> list[bool]:
