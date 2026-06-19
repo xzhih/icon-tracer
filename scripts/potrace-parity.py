@@ -236,6 +236,8 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
     render_diff(magick, potrace_mask, icon_mask, diff_mask)
 
     ae_pixels = int(compare_metric(magick, "AE", potrace_mask, icon_mask))
+    input_potrace_ae_pixels = int(compare_metric(magick, "AE", input_pbm, potrace_mask))
+    input_icon_ae_pixels = int(compare_metric(magick, "AE", input_pbm, icon_mask))
     rmse = compare_metric(magick, "RMSE", potrace_mask, icon_mask)
     potrace_stats = svg_stats(potrace_svg)
     icon_stats = svg_stats(icon_svg)
@@ -249,6 +251,8 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
         "mask_ae_pixels": ae_pixels,
         "mask_ae_ratio": ae_pixels / (CANVAS * CANVAS),
         "mask_rmse": rmse,
+        "input_potrace_ae_pixels": input_potrace_ae_pixels,
+        "input_icon_ae_pixels": input_icon_ae_pixels,
         "potrace_path_count": potrace_stats["path_count"],
         "icon_path_count": icon_stats["path_count"],
         "potrace_command_count": potrace_stats["command_count"],
@@ -499,12 +503,13 @@ def write_markdown(path: Path, rows: list[dict]) -> None:
         "",
         f"Mode: `{MODE}`",
         "",
-        "| Fixture | AE ratio | RMSE | Commands icon/potrace | cmd delta | Points icon/potrace | point delta | d bytes icon/potrace | byte delta |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Fixture | AE ratio | RMSE | Input AE icon/potrace | Commands icon/potrace | cmd delta | Points icon/potrace | point delta | d bytes icon/potrace | byte delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
             f"| {row['fixture']} | {row['mask_ae_ratio']:.6f} | {row['mask_rmse']:.6f} | "
+            f"{row['input_icon_ae_pixels']}/{row['input_potrace_ae_pixels']} | "
             f"{row['icon_command_count']}/{row['potrace_command_count']} | "
             f"{row['command_delta']:+d} | "
             f"{row['icon_svg_point_count']}/{row['potrace_svg_point_count']} | "
@@ -516,11 +521,14 @@ def write_markdown(path: Path, rows: list[dict]) -> None:
 
 
 def print_table(rows: list[dict]) -> None:
-    print("fixture        ae_ratio   rmse      commands  d_cmd  points   d_pts  bytes     b_delta")
+    print(
+        "fixture        ae_ratio   rmse      srcAE i/p   commands  d_cmd  points   d_pts  bytes     b_delta"
+    )
     for row in rows:
         print(
             f"{row['fixture']:<14} {row['mask_ae_ratio']:.6f} "
             f"{row['mask_rmse']:.6f} "
+            f"{row['input_icon_ae_pixels']}/{row['input_potrace_ae_pixels']:<9} "
             f"{row['icon_command_count']}/{row['potrace_command_count']:<7} "
             f"{row['command_delta']:+5d} "
             f"{row['icon_svg_point_count']}/{row['potrace_svg_point_count']:<7} "
