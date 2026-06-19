@@ -49,6 +49,38 @@ ICON_OPTS = (
     "--opt-tolerance",
     "0.2",
 )
+PARITY_LIMITS = {
+    "square": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 6,
+        "icon_svg_point_count": 5,
+        "icon_d_bytes": 30,
+    },
+    "circle": {
+        "mask_ae_pixels": 52,
+        "icon_command_count": 7,
+        "icon_svg_point_count": 12,
+        "icon_d_bytes": 128,
+    },
+    "triangle": {
+        "mask_ae_pixels": 4,
+        "icon_command_count": 8,
+        "icon_svg_point_count": 9,
+        "icon_d_bytes": 78,
+    },
+    "roundbar": {
+        "mask_ae_pixels": 63,
+        "icon_command_count": 7,
+        "icon_svg_point_count": 12,
+        "icon_d_bytes": 89,
+    },
+    "diagonal_bar": {
+        "mask_ae_pixels": 50,
+        "icon_command_count": 11,
+        "icon_svg_point_count": 26,
+        "icon_d_bytes": 239,
+    },
+}
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
 PATH_RE = re.compile(r"<path\b[^>]*\sd=\"([^\"]*)\"", re.IGNORECASE)
@@ -65,6 +97,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Compare icon-tracer output against Potrace 1.16.")
     parser.add_argument("--no-build", action="store_true", help="reuse target/release/icon-tracer")
     parser.add_argument("--out-dir", default=None, help="output directory")
+    parser.add_argument("--check", action="store_true", help="fail if tracked parity metrics regress")
     args = parser.parse_args()
 
     magick = require_tool("magick")
@@ -96,6 +129,14 @@ def main() -> int:
     write_markdown(out_dir / "report.md", rows)
     print_table(rows)
     print(f"\nreport: {out_dir / 'report.md'}")
+    if args.check:
+        failures = parity_regressions(rows)
+        if failures:
+            print("\nparity regressions:", file=sys.stderr)
+            for failure in failures:
+                print(f"- {failure}", file=sys.stderr)
+            return 1
+        print("parity check: ok")
     return 0
 
 
@@ -475,6 +516,21 @@ def print_table(rows: list[dict]) -> None:
             f"{row['icon_svg_point_count']}/{row['potrace_svg_point_count']:<7} "
             f"{row['icon_d_bytes']}/{row['potrace_d_bytes']}"
         )
+
+
+def parity_regressions(rows: list[dict]) -> list[str]:
+    failures = []
+    for row in rows:
+        fixture = row["fixture"]
+        limits = PARITY_LIMITS.get(fixture)
+        if limits is None:
+            continue
+
+        for metric, limit in limits.items():
+            actual = row[metric]
+            if actual > limit:
+                failures.append(f"{fixture} {metric} {actual} > {limit}")
+    return failures
 
 
 def rel(path: Path) -> str:
