@@ -4125,6 +4125,9 @@ fn fit_closed_smooth_potrace_segments(
     const SMOOTH_FIT_ERROR: f64 = 1.1;
 
     if allow_ellipse_primitive {
+        if let Some(capsule) = fit_closed_capsule_potrace_segments(points) {
+            return capsule;
+        }
         if let Some(ellipse) = fit_closed_ellipse_potrace_segments(points) {
             return ellipse;
         }
@@ -4141,6 +4144,163 @@ fn fit_closed_smooth_potrace_segments(
     }
 
     segments.into_iter().map(SvgPathSegment::Cubic).collect()
+}
+
+fn fit_closed_capsule_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
+    const MIN_RADIUS: f64 = 8.0;
+    const MIN_ASPECT_RATIO: f64 = 1.2;
+
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+
+    if width >= height * MIN_ASPECT_RATIO {
+        let radius = height / 2.0;
+        if radius < MIN_RADIUS {
+            return None;
+        }
+
+        let center_y = (bounds.min_y + bounds.max_y) / 2.0;
+        let start = (bounds.min_x + radius, center_y);
+        let end = (bounds.max_x - radius, center_y);
+        capsule_boundary_is_close(points, start, end, radius)
+            .then(|| horizontal_capsule_segments(bounds, radius))
+    } else if height >= width * MIN_ASPECT_RATIO {
+        let radius = width / 2.0;
+        if radius < MIN_RADIUS {
+            return None;
+        }
+
+        let center_x = (bounds.min_x + bounds.max_x) / 2.0;
+        let start = (center_x, bounds.min_y + radius);
+        let end = (center_x, bounds.max_y - radius);
+        capsule_boundary_is_close(points, start, end, radius)
+            .then(|| vertical_capsule_segments(bounds, radius))
+    } else {
+        None
+    }
+}
+
+fn capsule_boundary_is_close(
+    points: &[(f64, f64)],
+    start: (f64, f64),
+    end: (f64, f64),
+    radius: f64,
+) -> bool {
+    const MAX_RADIAL_ERROR: f64 = 0.075;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.03;
+
+    let mut max_error = 0.0_f64;
+    let mut total_error = 0.0_f64;
+
+    for point in points {
+        let distance = distance_squared_to_segment(*point, start, end).0.sqrt();
+        let error = ((distance - radius) / radius).abs();
+        max_error = max_error.max(error);
+        total_error += error;
+    }
+
+    max_error <= MAX_RADIAL_ERROR && total_error / points.len() as f64 <= MAX_MEAN_RADIAL_ERROR
+}
+
+fn horizontal_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
+    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
+
+    let center_y = (bounds.min_y + bounds.max_y) / 2.0;
+    let left = (bounds.min_x, center_y);
+    let top_left = (bounds.min_x + radius, bounds.min_y);
+    let top_right = (bounds.max_x - radius, bounds.min_y);
+    let right = (bounds.max_x, center_y);
+    let bottom_right = (bounds.max_x - radius, bounds.max_y);
+    let bottom_left = (bounds.min_x + radius, bounds.max_y);
+    let handle = radius * CIRCLE_ARC_KAPPA;
+
+    cubics_to_segments([
+        CubicSegment {
+            start: left,
+            control1: (left.0, left.1 - handle),
+            control2: (top_left.0 - handle, top_left.1),
+            end: top_left,
+        },
+        line_as_cubic(top_left, top_right),
+        CubicSegment {
+            start: top_right,
+            control1: (top_right.0 + handle, top_right.1),
+            control2: (right.0, right.1 - handle),
+            end: right,
+        },
+        CubicSegment {
+            start: right,
+            control1: (right.0, right.1 + handle),
+            control2: (bottom_right.0 + handle, bottom_right.1),
+            end: bottom_right,
+        },
+        line_as_cubic(bottom_right, bottom_left),
+        CubicSegment {
+            start: bottom_left,
+            control1: (bottom_left.0 - handle, bottom_left.1),
+            control2: (left.0, left.1 + handle),
+            end: left,
+        },
+    ])
+}
+
+fn vertical_capsule_segments(bounds: FloatBounds, radius: f64) -> Vec<SvgPathSegment> {
+    const CIRCLE_ARC_KAPPA: f64 = 0.552_284_749_830_793_6;
+
+    let center_x = (bounds.min_x + bounds.max_x) / 2.0;
+    let top = (center_x, bounds.min_y);
+    let right_top = (bounds.max_x, bounds.min_y + radius);
+    let right_bottom = (bounds.max_x, bounds.max_y - radius);
+    let bottom = (center_x, bounds.max_y);
+    let left_bottom = (bounds.min_x, bounds.max_y - radius);
+    let left_top = (bounds.min_x, bounds.min_y + radius);
+    let handle = radius * CIRCLE_ARC_KAPPA;
+
+    cubics_to_segments([
+        CubicSegment {
+            start: top,
+            control1: (top.0 + handle, top.1),
+            control2: (right_top.0, right_top.1 - handle),
+            end: right_top,
+        },
+        line_as_cubic(right_top, right_bottom),
+        CubicSegment {
+            start: right_bottom,
+            control1: (right_bottom.0, right_bottom.1 + handle),
+            control2: (bottom.0 + handle, bottom.1),
+            end: bottom,
+        },
+        CubicSegment {
+            start: bottom,
+            control1: (bottom.0 - handle, bottom.1),
+            control2: (left_bottom.0, left_bottom.1 + handle),
+            end: left_bottom,
+        },
+        line_as_cubic(left_bottom, left_top),
+        CubicSegment {
+            start: left_top,
+            control1: (left_top.0, left_top.1 - handle),
+            control2: (top.0 - handle, top.1),
+            end: top,
+        },
+    ])
+}
+
+fn line_as_cubic(start: (f64, f64), end: (f64, f64)) -> CubicSegment {
+    CubicSegment {
+        start,
+        control1: interpolate(start, end, 1.0 / 3.0),
+        control2: interpolate(start, end, 2.0 / 3.0),
+        end,
+    }
+}
+
+fn cubics_to_segments(cubics: [CubicSegment; 6]) -> Vec<SvgPathSegment> {
+    cubics.into_iter().map(SvgPathSegment::Cubic).collect()
 }
 
 fn fit_closed_ellipse_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
@@ -5918,6 +6078,44 @@ mod tests {
             .expect("ellipse-like points should fit the primitive");
 
         assert_eq!(segments.len(), 4);
+        assert!(segments
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
+    }
+
+    #[test]
+    fn closed_capsule_potrace_fit_uses_six_cubics() {
+        let center_y = 40.0;
+        let radius = 20.0;
+        let left_center = (30.0, center_y);
+        let right_center = (70.0, center_y);
+        let mut points = Vec::new();
+
+        for index in 0..=8 {
+            points.push((30.0 + index as f64 * 5.0, center_y - radius));
+        }
+        for index in 1..=16 {
+            let angle = -std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::PI / 16.0;
+            points.push((
+                right_center.0 + angle.cos() * radius,
+                right_center.1 + angle.sin() * radius,
+            ));
+        }
+        for index in 1..=8 {
+            points.push((70.0 - index as f64 * 5.0, center_y + radius));
+        }
+        for index in 1..=16 {
+            let angle = std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::PI / 16.0;
+            points.push((
+                left_center.0 + angle.cos() * radius,
+                left_center.1 + angle.sin() * radius,
+            ));
+        }
+
+        let segments = fit_closed_capsule_potrace_segments(&points)
+            .expect("capsule-like points should fit the primitive");
+
+        assert_eq!(segments.len(), 6);
         assert!(segments
             .iter()
             .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))));
