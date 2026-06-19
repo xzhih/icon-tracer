@@ -296,6 +296,79 @@ fn pixel_l_shape_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_t_shape_uses_potrace_template() {
+    let bitmap = parity_t_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1060 1600l0-467"), "{svg}");
+    assert!(svg.contains("s167 30 201 105"), "{svg}");
+    assert!(svg.contains("c-37 17-78 19-595 19"), "{svg}");
+}
+
+#[test]
+fn pixel_h_shape_uses_potrace_template() {
+    let bitmap = parity_h_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1540 1060l0-197"), "{svg}");
+    assert!(svg.contains("23 55 23 1239 0 1294"), "{svg}");
+    assert!(svg.contains("l0-198-260 0-260 0 0 198"), "{svg}");
+}
+
+#[test]
+fn pixel_hooked_l_shape_uses_potrace_template() {
+    let bitmap = parity_hooked_l_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(svg.contains("M1020 960v468"), "{svg}");
+    assert!(svg.contains("48 22 69 44 90 94"), "{svg}");
+    assert!(svg.contains("0 305-4 334-48 384"), "{svg}");
+    assert!(svg.contains("v-148Z"), "{svg}");
+}
+
+#[test]
 fn pixel_diagonal_capsule_primitive_uses_potrace_like_cubics() {
     let bitmap = parity_diagonal_bar_bitmap();
     let traced = trace_bitmap(

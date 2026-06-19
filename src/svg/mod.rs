@@ -548,6 +548,57 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(t_shape) = fit_closed_t_potrace_segments(&path.points) {
+                if let Some(first) = t_shape.first() {
+                    let candidate = (first.start(), t_shape);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(h_shape) = fit_closed_h_potrace_segments(&path.points) {
+                if let Some(first) = h_shape.first() {
+                    let candidate = (first.start(), h_shape);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(hooked_l) = fit_closed_hooked_l_potrace_segments(&path.points) {
+                if let Some(first) = hooked_l.first() {
+                    let candidate = (first.start(), hooked_l);
+                    if pixel_potrace_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(l_shape) = fit_closed_l_potrace_segments(&path.points) {
                 if let Some(first) = l_shape.first() {
                     let candidate = (first.start(), l_shape);

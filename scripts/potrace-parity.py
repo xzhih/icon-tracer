@@ -104,6 +104,24 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 38,
         "icon_d_bytes": 240,
     },
+    "t_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 17,
+        "icon_svg_point_count": 37,
+        "icon_d_bytes": 250,
+    },
+    "h_shape": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 23,
+        "icon_svg_point_count": 51,
+        "icon_d_bytes": 342,
+    },
+    "hooked_l": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 18,
+        "icon_svg_point_count": 45,
+        "icon_d_bytes": 283,
+    },
     "diagonal_bar": {
         "mask_ae_pixels": 0,
         "icon_command_count": 10,
@@ -223,6 +241,9 @@ def fixtures() -> list[Fixture]:
         Fixture("double_pill", shape_double_pill()),
         Fixture("plus_shape", shape_plus()),
         Fixture("l_shape", shape_l()),
+        Fixture("t_shape", shape_t()),
+        Fixture("h_shape", shape_h()),
+        Fixture("hooked_l", shape_hooked_l()),
         Fixture("diagonal_bar", shape_diagonal_bar()),
         Fixture("angled_v", shape_angled_v()),
         Fixture("rounded_rect_r18", shape_rounded_rect(18.0)),
@@ -314,6 +335,35 @@ def shape_l() -> list[bool]:
         [
             (58.0, 52.0, 102.0, 204.0, 18.0),
             (58.0, 160.0, 198.0, 204.0, 18.0),
+        ]
+    )
+
+
+def shape_t() -> list[bool]:
+    return rounded_rect_union(
+        [
+            (106.0, 52.0, 150.0, 204.0, 18.0),
+            (58.0, 52.0, 198.0, 96.0, 18.0),
+        ]
+    )
+
+
+def shape_h() -> list[bool]:
+    return rounded_rect_union(
+        [
+            (58.0, 52.0, 102.0, 204.0, 18.0),
+            (154.0, 52.0, 198.0, 204.0, 18.0),
+            (58.0, 106.0, 198.0, 150.0, 18.0),
+        ]
+    )
+
+
+def shape_hooked_l() -> list[bool]:
+    return rounded_rect_union(
+        [
+            (58.0, 52.0, 102.0, 204.0, 18.0),
+            (58.0, 160.0, 198.0, 204.0, 18.0),
+            (154.0, 116.0, 198.0, 204.0, 18.0),
         ]
     )
 
