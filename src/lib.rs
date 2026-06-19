@@ -979,7 +979,7 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
         }
     }
 
-    if !path_data_has_precision_sensitive_commands(path_data) {
+    if !path_data_has_arc_commands(path_data) {
         if let Some(one_decimal_path_data) = one_decimal_svg_path_data(path_data) {
             let one_decimal =
                 format!(r#"<path fill="black" fill-rule="evenodd" d="{one_decimal_path_data}"/>"#);
@@ -992,10 +992,8 @@ fn svg_path_element(path_data: &str, allow_scaled_potrace_path: bool) -> String 
     best
 }
 
-fn path_data_has_precision_sensitive_commands(path_data: &str) -> bool {
-    path_data
-        .bytes()
-        .any(|byte| matches!(byte, b'A' | b'a' | b'Q' | b'q'))
+fn path_data_has_arc_commands(path_data: &str) -> bool {
+    path_data.bytes().any(|byte| matches!(byte, b'A' | b'a'))
 }
 
 pub fn trace_bitmap(bitmap: &Bitmap, options: TraceOptions) -> TracedBitmap {
@@ -5298,6 +5296,7 @@ fn scaled_integer_svg_path_data(data: &str, scale_factor: f64) -> Option<String>
 fn one_decimal_svg_path_data(data: &str) -> Option<String> {
     let mut tokens = Vec::new();
     let mut index = 0usize;
+    let use_half_away_rounding = path_data_has_quadratic_commands(data);
 
     while index < data.len() {
         let byte = data.as_bytes()[index];
@@ -5314,11 +5313,30 @@ fn one_decimal_svg_path_data(data: &str) -> Option<String> {
 
         let end = svg_number_token_end(data, index)?;
         let value = data[index..end].parse::<f64>().ok()?;
-        tokens.push(format_compact_float_with_precision(value, 1));
+        let token = if use_half_away_rounding {
+            format_one_decimal_half_away_from_zero(value)
+        } else {
+            format_compact_float_with_precision(value, 1)
+        };
+        tokens.push(token);
         index = end;
     }
 
     Some(minify_svg_path_tokens(&tokens))
+}
+
+fn path_data_has_quadratic_commands(path_data: &str) -> bool {
+    path_data.bytes().any(|byte| matches!(byte, b'Q' | b'q'))
+}
+
+fn format_one_decimal_half_away_from_zero(value: f64) -> String {
+    let scaled = value * 10.0;
+    let rounded = if scaled >= 0.0 {
+        (scaled + 0.5).floor()
+    } else {
+        (scaled - 0.5).ceil()
+    };
+    format_compact_float_with_precision(rounded / 10.0, 1)
 }
 
 fn svg_number_token_end(data: &str, start: usize) -> Option<usize> {
@@ -7494,13 +7512,24 @@ mod tests {
     }
 
     #[test]
-    fn one_decimal_path_element_skips_precision_sensitive_commands() {
+    fn one_decimal_path_element_uses_half_away_rounding_for_quadratics() {
         let triangle = "M84.5 129l42.5-85.25q1-1.12 2 0l42.5 85.25 42.5 84.75-86 .25-86-.25Z";
 
         let path = svg_path_element(triangle, true);
 
-        assert!(path.contains("-85.25"), "{path}");
-        assert!(path.contains("q1-1.12"), "{path}");
+        assert!(path.contains("-85.3"), "{path}");
+        assert!(path.contains("q1-1.1"), "{path}");
+        assert!(path.len() < svg_path_element(triangle, false).len());
+    }
+
+    #[test]
+    fn one_decimal_path_element_skips_arc_commands() {
+        let circle = "M52.15 128a75.85 75.9 0 1 0 151.7 0a75.85 75.9 0 1 0-151.7 0Z";
+
+        let path = svg_path_element(circle, true);
+
+        assert!(path.contains("75.85"), "{path}");
+        assert!(!path.contains("75.9 75.9"), "{path}");
     }
 
     #[test]
