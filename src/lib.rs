@@ -5179,7 +5179,8 @@ fn closing_line_continues_last_line(
 fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -> Option<String> {
     const MIN_CIRCLE_SEGMENTS: usize = 5;
     const MIN_AXIS: f64 = 8.0;
-    const RADIUS_INSET: f64 = 0.1;
+    const RADIUS_X_INSET: f64 = 0.15;
+    const RADIUS_Y_INSET: f64 = 0.1;
     const MAX_RADIUS_ERROR: f64 = 0.02;
 
     if segments.len() < MIN_CIRCLE_SEGMENTS
@@ -5210,22 +5211,21 @@ fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -
         }
     }
 
-    let radius = (radius - RADIUS_INSET).max(MIN_AXIS);
-    let left = (center.0 - radius, center.1);
-    let right = (center.0 + radius, center.1);
+    let radius_x = (radius - RADIUS_X_INSET).max(MIN_AXIS);
+    let radius_y = (radius - RADIUS_Y_INSET).max(MIN_AXIS);
+    let left = (center.0 - radius_x, center.1);
+    let diameter_x = radius_x * 2.0;
 
     Some(format!(
-        "M {} {} A {} {} 0 1 0 {} {} A {} {} 0 1 0 {} {} Z",
+        "M {} {} a {} {} 0 1 0 {} 0 a {} {} 0 1 0 {} 0 Z",
         format_compact_float(left.0),
         format_compact_float(left.1),
-        format_compact_float(radius),
-        format_compact_float(radius),
-        format_compact_float(right.0),
-        format_compact_float(right.1),
-        format_compact_float(radius),
-        format_compact_float(radius),
-        format_compact_float(left.0),
-        format_compact_float(left.1),
+        format_compact_float(radius_x),
+        format_compact_float(radius_y),
+        format_compact_float(diameter_x),
+        format_compact_float(radius_x),
+        format_compact_float(radius_y),
+        format_compact_float(-diameter_x),
     ))
 }
 
@@ -7462,8 +7462,9 @@ mod tests {
         let segments = ellipse_arc_segments((128.0, 128.0), 76.0, 76.0, 5);
         let data = compact_svg_path_data_from_segments(segments[0].start(), &segments);
 
-        assert!(data.contains('A'), "{data}");
-        assert!(data.contains("75.9 75.9"), "{data}");
+        assert!(data.contains('a'), "{data}");
+        assert!(data.contains("75.85 75.9"), "{data}");
+        assert!(data.len() <= 61, "{data}");
     }
 
     #[test]
