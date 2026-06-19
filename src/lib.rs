@@ -3596,6 +3596,13 @@ impl SvgPathSegment {
             SvgPathSegment::Cubic(cubic) => cubic.start,
         }
     }
+
+    fn end(self) -> (f64, f64) {
+        match self {
+            SvgPathSegment::Line { end, .. } => end,
+            SvgPathSegment::Cubic(cubic) => cubic.end,
+        }
+    }
 }
 
 fn optimize_potrace_segments(
@@ -4539,6 +4546,22 @@ fn svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -
 }
 
 fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
+    let mut best = compact_svg_path_data_for_order(start, segments);
+
+    if compact_segments_are_closed(start, segments) {
+        for offset in 1..segments.len() {
+            let rotated = rotate_segments_at(segments, offset);
+            let candidate = compact_svg_path_data_for_order(rotated[0].start(), &rotated);
+            if candidate.len() < best.len() {
+                best = candidate;
+            }
+        }
+    }
+
+    best
+}
+
+fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment]) -> String {
     let absolute = minify_compact_svg_path_data(&compact_absolute_svg_path_data_from_segments(
         start, segments,
     ));
@@ -4553,6 +4576,29 @@ fn compact_svg_path_data_from_segments(start: (f64, f64), segments: &[SvgPathSeg
         .into_iter()
         .min_by_key(String::len)
         .expect("compact path candidates should not be empty")
+}
+
+fn compact_segments_are_closed(start: (f64, f64), segments: &[SvgPathSegment]) -> bool {
+    const EPSILON: f64 = 1.0e-9;
+
+    if segments.len() < 2
+        || distance_squared_float(start, segments[0].start()) > EPSILON
+        || distance_squared_float(segments[segments.len() - 1].end(), start) > EPSILON
+    {
+        return false;
+    }
+
+    segments
+        .windows(2)
+        .all(|window| distance_squared_float(window[0].end(), window[1].start()) <= EPSILON)
+}
+
+fn rotate_segments_at(segments: &[SvgPathSegment], offset: usize) -> Vec<SvgPathSegment> {
+    segments[offset..]
+        .iter()
+        .chain(segments[..offset].iter())
+        .copied()
+        .collect()
 }
 
 fn minify_compact_svg_path_data(data: &str) -> String {
@@ -4575,7 +4621,11 @@ fn compact_path_tokens_need_separator(previous: &str, next: &str) -> bool {
         return false;
     }
 
-    !next.starts_with('-') && !next.starts_with('+')
+    if next.starts_with('-') || next.starts_with('+') {
+        return false;
+    }
+
+    !(next.starts_with('.') && previous.contains('.'))
 }
 
 fn compact_path_token_is_command(token: &str) -> bool {
@@ -6289,6 +6339,40 @@ mod tests {
         let data = compact_svg_path_data_from_segments((0.25, -0.25), &segments);
 
         assert_eq!(data, "M.25-.25l.5-.5Z");
+    }
+
+    #[test]
+    fn compact_path_data_omits_separator_before_fraction_after_decimal() {
+        let segments = vec![SvgPathSegment::Line {
+            start: (1.5, 0.25),
+            end: (2.5, 0.75),
+        }];
+
+        let data = compact_svg_path_data_from_segments((1.5, 0.25), &segments);
+
+        assert_eq!(data, "M1.5.25l1 .5Z");
+    }
+
+    #[test]
+    fn compact_path_data_rotates_closed_segments_to_shorter_start() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (1000.0, 1000.0),
+                end: (0.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (1.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (1.0, 0.0),
+                end: (1000.0, 1000.0),
+            },
+        ];
+
+        let data = compact_svg_path_data_from_segments((1000.0, 1000.0), &segments);
+
+        assert!(data.starts_with("M0 0"), "{data}");
     }
 
     #[test]
