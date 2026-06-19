@@ -4982,11 +4982,18 @@ fn compact_svg_path_data_for_order(start: (f64, f64), segments: &[SvgPathSegment
     let quadratic = minify_compact_svg_path_data(
         &compact_quadratic_relative_svg_path_data_from_segments(start, segments),
     );
+    let arc = compact_circle_arc_svg_path_data_from_segments(segments)
+        .map(|data| minify_compact_svg_path_data(&data));
     let axis_smooth = minify_compact_svg_path_data(
         &compact_axis_smooth_relative_svg_path_data_from_segments(start, segments),
     );
 
-    let mut best = [absolute, relative, smooth, quadratic]
+    let mut candidates = vec![absolute, relative, smooth, quadratic];
+    if let Some(arc) = arc {
+        candidates.push(arc);
+    }
+
+    let mut best = candidates
         .into_iter()
         .min_by_key(String::len)
         .expect("compact path candidates should not be empty");
@@ -5020,6 +5027,59 @@ fn compact_segments_without_redundant_closing_line(
     } else {
         segments
     }
+}
+
+fn compact_circle_arc_svg_path_data_from_segments(segments: &[SvgPathSegment]) -> Option<String> {
+    const MIN_CIRCLE_SEGMENTS: usize = 5;
+    const MIN_AXIS: f64 = 8.0;
+    const RADIUS_INSET: f64 = 0.1;
+    const MAX_RADIUS_ERROR: f64 = 0.02;
+
+    if segments.len() < MIN_CIRCLE_SEGMENTS
+        || !segments
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+    {
+        return None;
+    }
+
+    let endpoints = segments
+        .iter()
+        .map(|segment| segment.start())
+        .collect::<Vec<_>>();
+    let center = arc_centroid(&endpoints);
+    let radius = endpoints
+        .iter()
+        .map(|point| distance(*point, center))
+        .sum::<f64>()
+        / endpoints.len() as f64;
+    if radius < MIN_AXIS {
+        return None;
+    }
+
+    for point in endpoints {
+        if ((distance(point, center) - radius) / radius).abs() > MAX_RADIUS_ERROR {
+            return None;
+        }
+    }
+
+    let radius = (radius - RADIUS_INSET).max(MIN_AXIS);
+    let left = (center.0 - radius, center.1);
+    let right = (center.0 + radius, center.1);
+
+    Some(format!(
+        "M {} {} A {} {} 0 1 0 {} {} A {} {} 0 1 0 {} {} Z",
+        format_compact_float(left.0),
+        format_compact_float(left.1),
+        format_compact_float(radius),
+        format_compact_float(radius),
+        format_compact_float(right.0),
+        format_compact_float(right.1),
+        format_compact_float(radius),
+        format_compact_float(radius),
+        format_compact_float(left.0),
+        format_compact_float(left.1),
+    ))
 }
 
 fn compact_segments_are_closed(start: (f64, f64), segments: &[SvgPathSegment]) -> bool {
@@ -5177,6 +5237,8 @@ fn compact_path_token_is_command(token: &str) -> bool {
                     | b'v'
                     | b'C'
                     | b'c'
+                    | b'A'
+                    | b'a'
                     | b'Q'
                     | b'q'
                     | b'S'
@@ -5206,6 +5268,8 @@ fn compact_path_command_count(data: &str) -> usize {
                 | 'v'
                 | 'C'
                 | 'c'
+                | 'A'
+                | 'a'
                 | 'S'
                 | 's'
                 | 'Q'
@@ -7188,6 +7252,15 @@ mod tests {
 
         assert!(data.contains('q'), "{data}");
         assert!(!data.contains('c'), "{data}");
+    }
+
+    #[test]
+    fn compact_path_data_uses_arc_for_circle_primitive() {
+        let segments = ellipse_arc_segments((128.0, 128.0), 76.0, 76.0, 5);
+        let data = compact_svg_path_data_from_segments(segments[0].start(), &segments);
+
+        assert!(data.contains('A'), "{data}");
+        assert!(data.contains("75.9 75.9"), "{data}");
     }
 
     #[test]
