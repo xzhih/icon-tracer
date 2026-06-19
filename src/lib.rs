@@ -3681,7 +3681,61 @@ fn optimize_mixed_potrace_curve_runs_once(
 fn cleanup_potrace_segments(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
     let optimized = prune_tiny_potrace_curve_segments(segments);
     let optimized = regularize_potrace_orthogonal_corners(optimized);
-    demote_nearly_linear_potrace_cubics(optimized)
+    let optimized = demote_nearly_linear_potrace_cubics(optimized);
+    merge_collinear_potrace_lines(optimized)
+}
+
+fn merge_collinear_potrace_lines(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
+    if segments.len() < 2 {
+        return segments;
+    }
+
+    let mut merged: Vec<SvgPathSegment> = Vec::with_capacity(segments.len());
+
+    for segment in segments {
+        if let Some(previous) = merged.last_mut() {
+            if let Some(combined) = merge_collinear_potrace_line_pair(*previous, segment) {
+                *previous = combined;
+                continue;
+            }
+        }
+
+        merged.push(segment);
+    }
+
+    merged
+}
+
+fn merge_collinear_potrace_line_pair(
+    previous: SvgPathSegment,
+    current: SvgPathSegment,
+) -> Option<SvgPathSegment> {
+    let (
+        SvgPathSegment::Line { start, end: middle },
+        SvgPathSegment::Line {
+            start: current_start,
+            end,
+        },
+    ) = (previous, current)
+    else {
+        return None;
+    };
+
+    if distance_squared_float(middle, current_start) > 1.0e-12 {
+        return None;
+    }
+
+    let first = subtract(middle, start);
+    let second = subtract(end, middle);
+    if vector_length_squared(first) <= f64::EPSILON
+        || vector_length_squared(second) <= f64::EPSILON
+        || cross(first, second).abs() > 1.0e-9
+        || dot(first, second) < 0.0
+    {
+        return None;
+    }
+
+    Some(SvgPathSegment::Line { start, end })
 }
 
 fn demote_nearly_linear_potrace_cubics(segments: Vec<SvgPathSegment>) -> Vec<SvgPathSegment> {
@@ -6876,6 +6930,53 @@ mod tests {
 
         assert!(matches!(cleaned[0], SvgPathSegment::Line { .. }));
         assert!(matches!(cleaned[1], SvgPathSegment::Cubic(_)));
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_merges_adjacent_collinear_lines() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (10.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 0.0),
+                end: (20.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (20.0, 0.0),
+                end: (20.0, 10.0),
+            },
+        ];
+
+        let merged = merge_collinear_potrace_lines(segments);
+
+        assert_eq!(merged.len(), 2, "{merged:?}");
+        assert!(matches!(
+            merged[0],
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (20.0, 0.0)
+            }
+        ));
+    }
+
+    #[test]
+    fn potrace_segment_cleanup_keeps_reversing_collinear_lines() {
+        let segments = vec![
+            SvgPathSegment::Line {
+                start: (0.0, 0.0),
+                end: (10.0, 0.0),
+            },
+            SvgPathSegment::Line {
+                start: (10.0, 0.0),
+                end: (0.0, 0.0),
+            },
+        ];
+
+        let merged = merge_collinear_potrace_lines(segments);
+
+        assert_eq!(merged.len(), 2, "{merged:?}");
     }
 
     #[test]
