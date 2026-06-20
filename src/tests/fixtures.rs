@@ -140,6 +140,26 @@ pub(super) fn parity_e_shape_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+pub(super) fn variable_e_shape_bitmaps() -> Vec<Bitmap> {
+    [
+        [
+            (48.0, 48.0, 98.0, 208.0, 16.0),
+            (48.0, 48.0, 210.0, 92.0, 16.0),
+            (48.0, 108.0, 190.0, 150.0, 16.0),
+            (48.0, 166.0, 210.0, 208.0, 16.0),
+        ],
+        [
+            (68.0, 54.0, 104.0, 202.0, 12.0),
+            (68.0, 54.0, 194.0, 88.0, 12.0),
+            (68.0, 112.0, 176.0, 146.0, 12.0),
+            (68.0, 168.0, 194.0, 202.0, 12.0),
+        ],
+    ]
+    .into_iter()
+    .map(|rects| rounded_rect_union_bitmap(&rects))
+    .collect()
+}
+
 pub(super) fn parity_two_circles_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let left_center = (84.0, 128.0);

@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POTRACE_PARITY = ROOT / "scripts" / "potrace-parity.py"
 OUT_DIR = ROOT / "target" / "potrace-broad-probe"
-TOTAL_AE_LIMIT = 7671
+TOTAL_AE_LIMIT = 6779
 BROAD_AE_LIMITS = {
     "capsule_0": 115,
     "capsule_1": 143,
@@ -67,10 +67,10 @@ BROAD_AE_LIMITS = {
     "ring_sector_4": 170,
     "sharp_v": 219,
     "skew_rect": 78,
-    "thin_e": 466,
+    "thin_e": 0,
     "thin_l": 0,
     "trapezoid": 118,
-    "wide_e": 426,
+    "wide_e": 0,
     "wide_h": 123,
     "wide_l": 1,
 }

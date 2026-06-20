@@ -44,6 +44,8 @@ pub(crate) fn closed_stepped_e_potrace_candidates(
         stepped_e_left_potrace_segments(bounds),
         stepped_e_down_potrace_segments(bounds),
         stepped_e_up_potrace_segments(bounds),
+        stepped_e_wide_potrace_segments(bounds),
+        stepped_e_thin_potrace_segments(bounds),
     ])
 }
 

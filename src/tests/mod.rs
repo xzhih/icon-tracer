@@ -8,5 +8,6 @@ mod optimizer;
 mod path_data;
 mod pixel_templates;
 mod potrace_core;
+mod stepped_e_templates;
 
 use fixtures::*;
