@@ -246,6 +246,26 @@ pub(super) fn parity_l_shape_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+pub(super) fn variable_l_shape_bitmaps() -> Vec<Bitmap> {
+    [
+        [
+            (50.0, 44.0, 92.0, 210.0, 15.0),
+            (50.0, 166.0, 214.0, 210.0, 18.0),
+        ],
+        [
+            (54.0, 46.0, 112.0, 208.0, 22.0),
+            (54.0, 148.0, 210.0, 208.0, 24.0),
+        ],
+        [
+            (66.0, 48.0, 94.0, 204.0, 12.0),
+            (66.0, 176.0, 202.0, 204.0, 12.0),
+        ],
+    ]
+    .into_iter()
+    .map(|rects| rounded_rect_union_bitmap(&rects))
+    .collect()
+}
+
 pub(super) fn parity_t_shape_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let rects = [
@@ -360,6 +380,24 @@ pub(super) fn parity_u_shape_bitmap() -> Bitmap {
         (160.0, 50.0, 202.0, 194.0, 17.0),
         (54.0, 152.0, 202.0, 202.0, 20.0),
     ];
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                let point = (x as f64 + 0.5, y as f64 + 0.5);
+                rects.iter().any(|(left, top, right, bottom, radius)| {
+                    let nearest_x = point.0.clamp(left + radius, right - radius);
+                    let nearest_y = point.1.clamp(top + radius, bottom - radius);
+                    (point.0 - nearest_x).powi(2) + (point.1 - nearest_y).powi(2) <= radius * radius
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
+fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
+    const CANVAS: usize = 256;
     let pixels = (0..CANVAS)
         .flat_map(|y| {
             (0..CANVAS).map(move |x| {

@@ -30,6 +30,9 @@ pub(crate) fn fit_closed_l_potrace_segments(points: &[(f64, f64)]) -> Option<Vec
         l_r90_potrace_segments(bounds),
         l_r180_potrace_segments(bounds),
         l_r270_potrace_segments(bounds),
+        l_wide_potrace_segments(bounds),
+        l_fat_potrace_segments(bounds),
+        l_thin_potrace_segments(bounds),
     ];
 
     candidates

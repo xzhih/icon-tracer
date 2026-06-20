@@ -405,6 +405,41 @@ fn pixel_l_shape_template_accepts_mirrored_and_rotated_orientations() {
 }
 
 #[test]
+fn pixel_l_shape_template_accepts_variable_stroke_archetypes() {
+    for (bitmap, expected_segments) in variable_l_shape_bitmaps().into_iter().zip([15, 20, 19]) {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let segments = fit_closed_l_potrace_segments(&path.points)
+            .expect("variable L shape should fit a Potrace-derived template");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("variable L path should render");
+
+        assert_eq!(segments.len(), expected_segments, "{segments:?}");
+        assert!(
+            compact_path_command_count(&data) <= expected_segments,
+            "{data}"
+        );
+    }
+}
+
+#[test]
 fn pixel_t_shape_uses_potrace_template() {
     let bitmap = parity_t_shape_bitmap();
     let traced = trace_bitmap(
