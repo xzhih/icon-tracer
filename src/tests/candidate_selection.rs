@@ -458,3 +458,75 @@ fn area_alpha_final_gate_rejects_simple_underfit_union() {
         &best,
     ));
 }
+
+#[test]
+fn bestpolygon_area_alpha_gate_accepts_offset_t_rescue() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (110.0, 48.0, 154.0, 210.0, 17.0),
+        (44.0, 58.0, 206.0, 102.0, 17.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = bestpolygon_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon candidate");
+    let area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+    let selected =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a selected candidate");
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(path, &best, bitmap.width(), bitmap.height())
+    );
+}
+
+#[test]
+fn bestpolygon_area_alpha_gate_rejects_wide_h_regression() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (48.0, 50.0, 94.0, 204.0, 18.0),
+        (162.0, 50.0, 208.0, 204.0, 18.0),
+        (48.0, 112.0, 208.0, 152.0, 16.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = bestpolygon_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon candidate");
+    let area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+    assert!(!pixel_potrace_area_alpha_final_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &area,
+        &best,
+    ));
+
+    let selected =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a selected candidate");
+    assert_ne!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
+    );
+}
