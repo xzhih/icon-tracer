@@ -139,13 +139,85 @@ pub(crate) fn pixel_potrace_candidate_mask_error(
         is_hole: path.is_hole,
         points: flattened_potrace_segments(candidate.0, &candidate.1),
     };
-    rasterize_path_evenodd(&candidate_path, width, height, &mut candidate_pixels);
+    rasterize_path_evenodd_coverage_threshold(
+        &candidate_path,
+        width,
+        height,
+        CANDIDATE_MASK_SUPERSAMPLE,
+        &mut candidate_pixels,
+    );
 
     reference
         .iter()
         .zip(candidate_pixels.iter())
         .filter(|(left, right)| left != right)
         .count()
+}
+
+pub(crate) const CANDIDATE_MASK_SUPERSAMPLE: usize = 4;
+
+pub(crate) fn rasterize_path_evenodd_coverage_threshold(
+    path: &TracePath,
+    width: usize,
+    height: usize,
+    scale: usize,
+    pixels: &mut [bool],
+) {
+    if path.points.len() < 3 || scale == 0 {
+        return;
+    }
+
+    let expected = width.saturating_mul(height);
+    if pixels.len() < expected {
+        return;
+    }
+
+    let sample_width = width.saturating_mul(scale);
+    let sample_height = height.saturating_mul(scale);
+    let threshold = scale.saturating_mul(scale);
+    let mut coverage = vec![0u16; expected];
+    let mut intersections = Vec::new();
+
+    for sample_y in 0..sample_height {
+        let scan_y = (sample_y as f64 + 0.5) / scale as f64;
+        intersections.clear();
+
+        for (start, end) in path.points.iter().zip(path.points.iter().cycle().skip(1)) {
+            if (start.1 <= scan_y && scan_y < end.1) || (end.1 <= scan_y && scan_y < start.1) {
+                let amount = (scan_y - start.1) / (end.1 - start.1);
+                intersections.push(start.0 + (end.0 - start.0) * amount);
+            }
+        }
+
+        intersections.sort_by(|a, b| a.total_cmp(b));
+        let pixel_y = sample_y / scale;
+
+        for pair in intersections.chunks_exact(2) {
+            let left = pair[0].min(pair[1]);
+            let right = pair[0].max(pair[1]);
+            let start_x = clamp_sample_x((left * scale as f64 - 0.5).ceil(), sample_width);
+            let end_x = clamp_sample_x((right * scale as f64 - 0.5).ceil(), sample_width);
+
+            for sample_x in start_x..end_x {
+                let pixel_x = sample_x / scale;
+                coverage[pixel_y * width + pixel_x] += 1;
+            }
+        }
+    }
+
+    for (pixel, count) in pixels.iter_mut().zip(coverage) {
+        *pixel = usize::from(count).saturating_mul(2) >= threshold;
+    }
+}
+
+pub(crate) fn clamp_sample_x(value: f64, sample_width: usize) -> usize {
+    if value <= 0.0 {
+        0
+    } else if value >= sample_width as f64 {
+        sample_width
+    } else {
+        value as usize
+    }
 }
 
 pub(crate) fn pixel_potrace_candidate_boundary_rms_error(

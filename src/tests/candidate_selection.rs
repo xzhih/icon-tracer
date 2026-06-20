@@ -1,4 +1,5 @@
 use super::*;
+use crate::trace::rasterize_path_evenodd;
 
 #[test]
 fn pixel_potrace_candidate_selection_rejects_shorter_mask_regression() {
@@ -116,6 +117,27 @@ fn fitted_candidate_selection_allows_tiny_mask_slack_only() {
         &far,
         &best
     ));
+}
+
+#[test]
+fn coverage_threshold_rasterizer_matches_integer_square_pixels() {
+    let path = TracePath {
+        is_hole: false,
+        points: vec![(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)],
+    };
+    let mut center_sampled = vec![false; 10 * 10];
+    let mut coverage_sampled = vec![false; 10 * 10];
+
+    rasterize_path_evenodd(&path, 10, 10, &mut center_sampled);
+    rasterize_path_evenodd_coverage_threshold(
+        &path,
+        10,
+        10,
+        CANDIDATE_MASK_SUPERSAMPLE,
+        &mut coverage_sampled,
+    );
+
+    assert_eq!(coverage_sampled, center_sampled);
 }
 
 #[test]

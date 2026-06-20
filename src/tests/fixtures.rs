@@ -500,7 +500,7 @@ fn polygon_bitmap(points: &[(f64, f64)]) -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
-fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
+pub(super) fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)
         .flat_map(|y| {

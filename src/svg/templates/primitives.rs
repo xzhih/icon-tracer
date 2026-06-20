@@ -171,11 +171,11 @@ pub(crate) fn fit_closed_capsule_potrace_segments(
         let start = (center_x, bounds.min_y + radius);
         let end = (center_x, bounds.max_y - radius);
         capsule_boundary_is_close(points, start, end, radius).then(|| {
-            if small_capsule_template_is_preferred(radius) {
-                small_vertical_capsule_segments(bounds)
-            } else {
-                vertical_capsule_segments(bounds, radius)
-            }
+            choose_capsule_template_by_boundary(
+                points,
+                small_vertical_capsule_segments(bounds),
+                vertical_capsule_segments(bounds, radius),
+            )
         })
     } else {
         None
@@ -184,6 +184,40 @@ pub(crate) fn fit_closed_capsule_potrace_segments(
 
 pub(crate) fn small_capsule_template_is_preferred(radius: f64) -> bool {
     radius <= 28.0
+}
+
+pub(crate) fn choose_capsule_template_by_boundary(
+    points: &[(f64, f64)],
+    small: Vec<SvgPathSegment>,
+    regular: Vec<SvgPathSegment>,
+) -> Vec<SvgPathSegment> {
+    let small_error = capsule_template_boundary_rms_error(points, &small);
+    let regular_error = capsule_template_boundary_rms_error(points, &regular);
+
+    if regular_error < small_error {
+        regular
+    } else {
+        small
+    }
+}
+
+pub(crate) fn capsule_template_boundary_rms_error(
+    points: &[(f64, f64)],
+    segments: &[SvgPathSegment],
+) -> f64 {
+    let Some(first) = segments.first() else {
+        return f64::INFINITY;
+    };
+
+    let reference = closed_polyline_points(points);
+    let candidate = closed_polyline_points(&flattened_potrace_segments(first.start(), segments));
+    if reference.len() < 2 || candidate.len() < 2 {
+        return f64::INFINITY;
+    }
+
+    let reference_to_candidate = mean_squared_distance_to_polyline(&reference, &candidate);
+    let candidate_to_reference = mean_squared_distance_to_polyline(&candidate, &reference);
+    (reference_to_candidate.max(candidate_to_reference)).sqrt()
 }
 
 pub(crate) fn fit_closed_diagonal_capsule_potrace_segments(
