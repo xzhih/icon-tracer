@@ -11,6 +11,7 @@ mod plus;
 mod staple;
 mod staple_paths;
 mod stepped_e;
+mod stepped_e_paths;
 mod stepped_f;
 mod t_shape;
 mod transform;

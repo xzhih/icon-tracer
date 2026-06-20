@@ -1,191 +1,51 @@
+use super::stepped_e_paths::*;
 use super::*;
 
+#[cfg(test)]
 pub(crate) fn fit_closed_stepped_e_potrace_segments(
     points: &[(f64, f64)],
 ) -> Option<Vec<SvgPathSegment>> {
+    closed_stepped_e_potrace_candidates(points)?
+        .into_iter()
+        .filter_map(|segments| {
+            let path = TracePath {
+                points: points.to_vec(),
+                is_hole: false,
+            };
+            let candidate = (segments[0].start(), segments.clone());
+            let error = pixel_potrace_candidate_boundary_rms_error(&path, &candidate);
+            (error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some((error, segments))
+        })
+        .min_by(|(left_error, _), (right_error, _)| left_error.total_cmp(right_error))
+        .map(|(_, segments)| segments)
+}
+
+pub(crate) fn closed_stepped_e_potrace_candidates(
+    points: &[(f64, f64)],
+) -> Option<Vec<Vec<SvgPathSegment>>> {
     const MIN_AXIS: f64 = 48.0;
     const MIN_ASPECT_RATIO: f64 = 0.75;
     const MAX_ASPECT_RATIO: f64 = 1.25;
-    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;
 
-    fit_closed_template_variants(
-        points,
-        MIN_AXIS,
-        MIN_ASPECT_RATIO,
-        MAX_ASPECT_RATIO,
-        MAX_TEMPLATE_BOUNDARY_ERROR,
-        stepped_e_potrace_segments,
-        &ORTHOGONAL_TEMPLATE_TRANSFORMS,
-    )
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
+
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    Some(vec![
+        stepped_e_potrace_segments(bounds),
+        stepped_e_left_potrace_segments(bounds),
+        stepped_e_down_potrace_segments(bounds),
+        stepped_e_up_potrace_segments(bounds),
+    ])
 }
 
-pub(crate) fn stepped_e_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
-    vec![
-        normalized_rect_cubic(
-            bounds,
-            (0.067_857_142_857, 0.009_210_526_316),
-            (0.038_571_428_571, 0.021_052_631_579),
-            (0.008_571_428_571, 0.054_605_263_158),
-            (0.003_571_428_571, 0.080_921_052_632),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.003_571_428_571, 0.080_921_052_632),
-            (0.001_428_571_429, 0.092_763_157_895),
-            (0.0, 0.288_815_789_474),
-            (0.001_428_571_429, 0.517_763_157_895),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.001_428_571_429, 0.517_763_157_895),
-            (0.003_571_428_571, 0.925_657_894_737),
-            (0.003_571_428_571, 0.933_552_631_579),
-            (0.018_571_428_571, 0.951_315_789_474),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.018_571_428_571, 0.951_315_789_474),
-            (0.026_428_571_429, 0.961_184_210_526),
-            (0.042_142_857_143, 0.975_657_894_737),
-            (0.052_857_142_857, 0.982_894_736_842),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.052_857_142_857, 0.982_894_736_842),
-            (0.072_142_857_143, 0.996_710_526_316),
-            (0.079_285_714_286, 0.996_710_526_316),
-            (0.5, 0.996_710_526_316),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.5, 0.996_710_526_316),
-            (0.920_714_285_714, 0.996_710_526_316),
-            (0.927_857_142_857, 0.996_710_526_316),
-            (0.947_142_857_143, 0.982_894_736_842),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.947_142_857_143, 0.982_894_736_842),
-            (0.991_428_571_429, 0.952_631_578_947),
-            (0.996_428_571_429, 0.940_131_578_947),
-            (0.996_428_571_429, 0.855_263_157_895),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.996_428_571_429, 0.855_263_157_895),
-            (0.996_428_571_429, 0.770_394_736_842),
-            (0.991_428_571_429, 0.757_894_736_842),
-            (0.947_142_857_143, 0.727_631_578_947),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.947_142_857_143, 0.727_631_578_947),
-            (0.927_857_142_857, 0.714_473_684_211),
-            (0.917_857_142_857, 0.713_815_789_474),
-            (0.627_857_142_857, 0.711_842_105_263),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.627_857_142_857, 0.711_842_105_263),
-            (0.328_571_428_571, 0.709_868_421_053),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.709_868_421_053),
-            (0.328_571_428_571, 0.677_631_578_947),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.677_631_578_947),
-            (0.328_571_428_571, 0.645_394_736_842),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.645_394_736_842),
-            (0.570_714_285_714, 0.643_421_052_632),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.570_714_285_714, 0.643_421_052_632),
-            (0.802_857_142_857, 0.641_447_368_421),
-            (0.814_285_714_286, 0.640_789_473_684),
-            (0.832_857_142_857, 0.627_631_578_947),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.832_857_142_857, 0.627_631_578_947),
-            (0.877_142_857_143, 0.597_368_421_053),
-            (0.882_142_857_143, 0.584_868_421_053),
-            (0.882_142_857_143, 0.5),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.882_142_857_143, 0.5),
-            (0.882_142_857_143, 0.415_131_578_947),
-            (0.877_142_857_143, 0.402_631_578_947),
-            (0.832_857_142_857, 0.372_368_421_053),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.832_857_142_857, 0.372_368_421_053),
-            (0.814_285_714_286, 0.359_210_526_316),
-            (0.802_857_142_857, 0.358_552_631_579),
-            (0.570_714_285_714, 0.356_578_947_368),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.570_714_285_714, 0.356_578_947_368),
-            (0.328_571_428_571, 0.354_605_263_158),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.354_605_263_158),
-            (0.328_571_428_571, 0.322_368_421_053),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.322_368_421_053),
-            (0.328_571_428_571, 0.290_131_578_947),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.328_571_428_571, 0.290_131_578_947),
-            (0.627_857_142_857, 0.288_157_894_737),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.627_857_142_857, 0.288_157_894_737),
-            (0.917_857_142_857, 0.286_184_210_526),
-            (0.927_857_142_857, 0.285_526_315_789),
-            (0.947_142_857_143, 0.272_368_421_053),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.947_142_857_143, 0.272_368_421_053),
-            (0.991_428_571_429, 0.242_105_263_158),
-            (0.996_428_571_429, 0.229_605_263_158),
-            (0.996_428_571_429, 0.144_736_842_105),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.996_428_571_429, 0.144_736_842_105),
-            (0.996_428_571_429, 0.059_868_421_053),
-            (0.991_428_571_429, 0.047_368_421_053),
-            (0.947_142_857_143, 0.017_105_263_158),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.947_142_857_143, 0.017_105_263_158),
-            (0.927_857_142_857, 0.003_289_473_684),
-            (0.919_285_714_286, 0.003_289_473_684),
-            (0.508_571_428_571, 0.001_973_684_211),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.508_571_428_571, 0.001_973_684_211),
-            (0.170_714_285_714, 0.000_657_894_737),
-            (0.085, 0.001_973_684_211),
-            (0.067_857_142_857, 0.009_210_526_316),
-        ),
-    ]
-}
+#[cfg(test)]
+const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;

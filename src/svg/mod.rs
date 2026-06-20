@@ -633,22 +633,36 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
-            if let Some(stepped_e) = fit_closed_stepped_e_potrace_segments(&path.points) {
-                if let Some(first) = stepped_e.first() {
+            if let Some(stepped_e_candidates) = closed_stepped_e_potrace_candidates(&path.points) {
+                const MAX_STEPPED_E_TEMPLATE_BOUNDARY_ERROR: f64 = 0.75;
+                let mut selected_stepped_e = None;
+                for stepped_e in stepped_e_candidates {
+                    let Some(first) = stepped_e.first() else {
+                        continue;
+                    };
                     let candidate = (first.start(), stepped_e);
-                    if pixel_potrace_template_candidate_is_better(
-                        path,
-                        canvas_size,
-                        &candidate,
-                        &best,
-                    ) || pixel_potrace_template_candidate_is_acceptable(
-                        path,
-                        canvas_size,
-                        &candidate,
-                    ) {
-                        best = candidate;
-                        preserve_primitive = true;
+                    let candidate_boundary_error =
+                        pixel_potrace_candidate_boundary_rms_error(path, &candidate);
+                    if candidate_boundary_error <= MAX_STEPPED_E_TEMPLATE_BOUNDARY_ERROR {
+                        let Some((width, height)) = canvas_size else {
+                            continue;
+                        };
+                        let candidate_score = (
+                            pixel_potrace_candidate_mask_error(path, &candidate, width, height),
+                            candidate_boundary_error,
+                            compact_svg_path_data_from_segments(candidate.0, &candidate.1).len(),
+                        );
+                        let should_replace = selected_stepped_e
+                            .as_ref()
+                            .is_none_or(|(score, _)| candidate_score < *score);
+                        if should_replace {
+                            selected_stepped_e = Some((candidate_score, candidate));
+                        }
                     }
+                }
+                if let Some((_, candidate)) = selected_stepped_e {
+                    best = candidate;
+                    preserve_primitive = true;
                 }
             }
         }

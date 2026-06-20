@@ -170,6 +170,36 @@ PARITY_LIMITS = {
         "icon_svg_point_count": 57,
         "icon_d_bytes": 368,
     },
+    "e_mx": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 27,
+        "icon_svg_point_count": 60,
+        "icon_d_bytes": 381,
+    },
+    "e_my": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 26,
+        "icon_svg_point_count": 57,
+        "icon_d_bytes": 368,
+    },
+    "e_r90": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 26,
+        "icon_svg_point_count": 57,
+        "icon_d_bytes": 361,
+    },
+    "e_r180": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 27,
+        "icon_svg_point_count": 60,
+        "icon_d_bytes": 381,
+    },
+    "e_r270": {
+        "mask_ae_pixels": 0,
+        "icon_command_count": 27,
+        "icon_svg_point_count": 60,
+        "icon_d_bytes": 386,
+    },
 }
 COMMAND_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]")
 NUMBER_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
@@ -252,7 +282,36 @@ def fixtures() -> list[Fixture]:
         Fixture("c_shape", shape_c()),
         Fixture("f_shape", shape_f()),
         Fixture("e_shape", shape_e()),
+        Fixture("e_mx", mirror_x(shape_e())),
+        Fixture("e_my", mirror_y(shape_e())),
+        Fixture("e_r90", rotate90(shape_e())),
+        Fixture("e_r180", rotate180(shape_e())),
+        Fixture("e_r270", rotate270(shape_e())),
     ]
+
+
+def mirror_x(pixels: list[bool]) -> list[bool]:
+    return [pixels[y * CANVAS + (CANVAS - 1 - x)] for y in range(CANVAS) for x in range(CANVAS)]
+
+
+def mirror_y(pixels: list[bool]) -> list[bool]:
+    return [pixels[(CANVAS - 1 - y) * CANVAS + x] for y in range(CANVAS) for x in range(CANVAS)]
+
+
+def rotate90(pixels: list[bool]) -> list[bool]:
+    return [pixels[(CANVAS - 1 - x) * CANVAS + y] for y in range(CANVAS) for x in range(CANVAS)]
+
+
+def rotate180(pixels: list[bool]) -> list[bool]:
+    return [
+        pixels[(CANVAS - 1 - y) * CANVAS + (CANVAS - 1 - x)]
+        for y in range(CANVAS)
+        for x in range(CANVAS)
+    ]
+
+
+def rotate270(pixels: list[bool]) -> list[bool]:
+    return [pixels[x * CANVAS + (CANVAS - 1 - y)] for y in range(CANVAS) for x in range(CANVAS)]
 
 
 def shape_square() -> list[bool]:

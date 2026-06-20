@@ -48,6 +48,10 @@ fn rotate_bitmap_counter_clockwise(bitmap: &Bitmap) -> Bitmap {
     Bitmap::from_rows(width, height, &pixels).expect("rotated fixture pixels should match canvas")
 }
 
+fn rotate_bitmap_half_turn(bitmap: &Bitmap) -> Bitmap {
+    mirror_bitmap_y(&mirror_bitmap_x(bitmap))
+}
+
 #[test]
 fn closed_ellipse_potrace_fit_uses_five_cubics() {
     let points = (0..64)
@@ -693,4 +697,44 @@ fn pixel_e_shape_template_matches_potrace_mask() {
     assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
     assert!(svg.contains("M1040 1599l419 3"), "{svg}");
     assert!(svg.contains("339 3c325 3"), "{svg}");
+}
+
+#[test]
+fn pixel_e_shape_template_accepts_mirrored_and_rotated_orientations() {
+    for bitmap in [
+        mirror_bitmap_x(&parity_e_shape_bitmap()),
+        rotate_bitmap_clockwise(&parity_e_shape_bitmap()),
+        rotate_bitmap_half_turn(&parity_e_shape_bitmap()),
+        rotate_bitmap_counter_clockwise(&parity_e_shape_bitmap()),
+    ] {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let segments = fit_closed_stepped_e_potrace_segments(&path.points)
+            .expect("oriented E shape should fit a direction-specific Potrace template");
+        let final_data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("oriented E path should render");
+
+        assert!(matches!(segments.len(), 26 | 27), "{segments:?}");
+        assert!(
+            compact_path_command_count(&final_data) <= 27,
+            "{final_data}"
+        );
+    }
 }
