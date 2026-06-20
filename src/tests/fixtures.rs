@@ -455,6 +455,39 @@ pub(super) fn sharp_v_polygon_bitmap() -> Bitmap {
     ])
 }
 
+pub(super) fn ring_sector_bitmap(
+    start_degrees: f64,
+    end_degrees: f64,
+    inner_radius: f64,
+    outer_radius: f64,
+) -> Bitmap {
+    const CANVAS: usize = 256;
+    let center = CANVAS as f64 / 2.0;
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                let px = x as f64 + 0.5 - center;
+                let py = y as f64 + 0.5 - center;
+                let radius_squared = px * px + py * py;
+                if !(inner_radius * inner_radius < radius_squared
+                    && radius_squared <= outer_radius * outer_radius)
+                {
+                    return false;
+                }
+
+                let angle = py.atan2(px).to_degrees().rem_euclid(360.0);
+                if start_degrees <= end_degrees {
+                    start_degrees <= angle && angle <= end_degrees
+                } else {
+                    angle >= start_degrees || angle <= end_degrees
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 fn polygon_bitmap(points: &[(f64, f64)]) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)

@@ -1,5 +1,6 @@
 use super::*;
 
+mod annular_sector;
 mod chevron;
 mod chevron_paths;
 mod h_shape;
@@ -21,6 +22,7 @@ mod t_shape;
 mod t_shape_paths;
 mod transform;
 
+pub(crate) use annular_sector::*;
 pub(crate) use chevron::*;
 pub(crate) use h_shape::*;
 pub(crate) use hooked_l::*;

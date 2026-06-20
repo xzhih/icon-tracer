@@ -735,6 +735,19 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(annular_sector) =
+                fit_closed_annular_sector_potrace_segments(&path.points, canvas_size)
+            {
+                if let Some(first) = annular_sector.first() {
+                    let candidate = (first.start(), annular_sector);
+                    if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                        best = candidate;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(candidate) =
                 relaxed_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
             {
