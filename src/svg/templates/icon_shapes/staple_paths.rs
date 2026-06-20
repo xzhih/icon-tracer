@@ -1,6 +1,8 @@
 use super::path_specs::{segments_from_specs, SegmentSpec};
 use super::*;
 
+mod offset;
+
 pub(crate) fn staple_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
     segments_from_specs(bounds, STAPLE_OPEN_TOP_SEGMENTS)
 }
@@ -15,6 +17,10 @@ pub(crate) fn staple_open_right_potrace_segments(bounds: FloatBounds) -> Vec<Svg
 
 pub(crate) fn staple_open_left_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
     segments_from_specs(bounds, STAPLE_OPEN_LEFT_SEGMENTS)
+}
+
+pub(crate) fn staple_offset_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
+    segments_from_specs(bounds, offset::SEGMENTS)
 }
 
 const STAPLE_OPEN_TOP_SEGMENTS: &[SegmentSpec] = &[

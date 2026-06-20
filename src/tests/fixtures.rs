@@ -416,6 +416,14 @@ pub(super) fn parity_u_shape_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+pub(super) fn offset_u_shape_bitmap() -> Bitmap {
+    rounded_rect_union_bitmap(&[
+        (48.0, 44.0, 92.0, 190.0, 18.0),
+        (154.0, 58.0, 204.0, 198.0, 20.0),
+        (48.0, 146.0, 204.0, 204.0, 22.0),
+    ])
+}
+
 fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)

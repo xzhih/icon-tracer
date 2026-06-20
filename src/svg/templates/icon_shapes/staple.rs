@@ -53,10 +53,16 @@ pub(crate) fn fit_closed_staple_potrace_segments(
             min_y: bounds.min_y - 0.1,
             max_y: bounds.max_y + 0.1,
         }),
+        staple_offset_potrace_segments(bounds),
     ];
 
-    candidates.into_iter().find(|segments| {
-        let candidate = (segments[0].start(), segments.clone());
-        pixel_potrace_candidate_boundary_rms_error(&path, &candidate) <= MAX_TEMPLATE_BOUNDARY_ERROR
-    })
+    candidates
+        .into_iter()
+        .filter_map(|segments| {
+            let candidate = (segments[0].start(), segments.clone());
+            let error = pixel_potrace_candidate_boundary_rms_error(&path, &candidate);
+            (error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some((error, segments))
+        })
+        .min_by(|(left_error, _), (right_error, _)| left_error.total_cmp(right_error))
+        .map(|(_, segments)| segments)
 }
