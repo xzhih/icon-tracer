@@ -5,6 +5,7 @@ mod chevron_paths;
 mod h_shape;
 mod hooked_l;
 mod l_shape;
+mod l_shape_paths;
 mod open_ring;
 mod open_ring_paths;
 mod path_specs;
