@@ -200,6 +200,25 @@ pub(super) fn parity_diagonal_bar_bitmap() -> Bitmap {
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
 }
 
+pub(super) fn narrow_diagonal_capsule_bitmap() -> Bitmap {
+    const CANVAS: usize = 256;
+    let start = (92.0, 206.0);
+    let end = (214.0, 70.0);
+    let half_width = 13.0;
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                distance_squared_to_segment((x as f64 + 0.5, y as f64 + 0.5), start, end)
+                    .0
+                    .sqrt()
+                    <= half_width
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 pub(super) fn parity_double_pill_bitmap() -> Bitmap {
     const CANVAS: usize = 256;
     let rects = [

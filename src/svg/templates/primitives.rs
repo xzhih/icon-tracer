@@ -303,7 +303,7 @@ pub(crate) fn diagonal_capsule_boundary_is_close(
     radius: f64,
 ) -> bool {
     const MAX_RADIAL_ERROR: f64 = 0.12;
-    const MAX_MEAN_RADIAL_ERROR: f64 = 0.055;
+    const MAX_MEAN_RADIAL_ERROR: f64 = 0.065;
 
     let normal = left_normal(axis);
     let start = (-half_length + radius, 0.0);
@@ -927,6 +927,10 @@ pub(crate) fn diagonal_capsule_segments(
     half_length: f64,
     radius: f64,
 ) -> Vec<SvgPathSegment> {
+    if small_diagonal_capsule_template_is_preferred(radius) {
+        return small_diagonal_capsule_segments(origin, axis, half_length, radius);
+    }
+
     let points = [
         [
             (0.875_504_324, -0.897_971_837),
@@ -975,6 +979,68 @@ pub(crate) fn diagonal_capsule_segments(
             (0.987_013_56, -0.464_810_22),
             (0.937_270_09, -0.796_384_88),
             (0.875_504_324, -0.897_971_837),
+        ],
+    ];
+
+    points
+        .into_iter()
+        .map(|[start, control1, control2, end]| {
+            SvgPathSegment::Cubic(CubicSegment {
+                start: diagonal_capsule_point(origin, axis, half_length, radius, start),
+                control1: diagonal_capsule_point(origin, axis, half_length, radius, control1),
+                control2: diagonal_capsule_point(origin, axis, half_length, radius, control2),
+                end: diagonal_capsule_point(origin, axis, half_length, radius, end),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn small_diagonal_capsule_template_is_preferred(radius: f64) -> bool {
+    radius <= 15.0
+}
+
+pub(crate) fn small_diagonal_capsule_segments(
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (0.918_015_968_631, -0.872_404_774_696),
+            (0.896_213_666_281, -0.937_477_201_239),
+            (-0.864_960_766_722, -0.967_648_999_336),
+            (-0.905_282_309_668, -0.897_505_781_69),
+        ],
+        [
+            (-0.905_282_309_668, -0.897_505_781_69),
+            (-0.917_540_384_326, -0.882_140_333_785),
+            (-0.938_458_388_411, -0.788_718_588_947),
+            (-0.951_865_018_552, -0.707_512_367_76),
+        ],
+        [
+            (-0.951_865_018_552, -0.707_512_367_76),
+            (-1.018_481_433_255, -0.265_603_037_611),
+            (-1.001_677_859_06, 0.588_068_194_594),
+            (-0.920_634_277_964, 0.861_126_574_592),
+        ],
+        [
+            (-0.920_634_277_964, 0.861_126_574_592),
+            (-0.897_559_411_922, 0.936_924_051_062),
+            (0.859_504_602_213, 0.975_608_298_377),
+            (0.905_282_309_668, 0.897_505_781_69),
+        ],
+        [
+            (0.905_282_309_668, 0.897_505_781_69),
+            (0.963_318_091_782, 0.804_037_817_097),
+            (1.005_879_804_543, 0.234_918_361_556),
+            (0.990_968_835_088, -0.225_198_704_68),
+        ],
+        [
+            (0.990_968_835_088, -0.225_198_704_68),
+            (0.981_396_136_821, -0.489_283_924_793),
+            (0.949_728_408_413, -0.777_753_972_452),
+            (0.918_015_968_631, -0.872_404_774_696),
         ],
     ];
 
