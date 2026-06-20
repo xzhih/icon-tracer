@@ -351,6 +351,20 @@ pub(crate) fn pixel_potrace_segments_for_points(
     )
 }
 
+pub(crate) fn base_pixel_potrace_segments_for_points(
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = optimal_potrace_polygon_indices(points);
+    let (start, segments) = smooth_pixel_potrace_segments_for_polygon_indices(points, &polygon)?;
+    Some(optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    ))
+}
+
 fn compact_strict_pixel_potrace_segments_for_points(
     path: &TracePath,
     points: &[(f64, f64)],
@@ -419,6 +433,21 @@ pub(crate) fn relaxed_pixel_potrace_segments_for_points(
     let polygon = relaxed_optimal_potrace_polygon_indices(points);
     let vertices = adjust_potrace_vertices(points, &polygon, 0.5);
     let (start, segments) = smooth_potrace_vertices(&vertices)?;
+    Some(optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    ))
+}
+
+pub(crate) fn area_alpha_pixel_potrace_segments_for_points(
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = optimal_potrace_polygon_indices(points);
+    let vertices = adjust_potrace_vertices(points, &polygon, 0.5);
+    let (start, segments) = smooth_area_alpha_potrace_vertices(&vertices)?;
     Some(optimize_potrace_segments(
         start,
         &segments,

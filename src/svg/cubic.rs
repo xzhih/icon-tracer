@@ -345,6 +345,24 @@ pub(crate) fn potrace_curve_alpha(
     base_alpha * incoming_length.min(outgoing_length).sqrt()
 }
 
+pub(crate) fn potrace_area_curve_alpha(
+    previous: (f64, f64),
+    vertex: (f64, f64),
+    next: (f64, f64),
+) -> f64 {
+    let denominator = (next.0 - previous.0).abs() + (next.1 - previous.1).abs();
+    if denominator <= f64::EPSILON {
+        return 4.0 / 3.0;
+    }
+
+    let distance = signed_area_twice(previous, vertex, next).abs() / denominator;
+    if distance > 1.0 {
+        (1.0 - 1.0 / distance) / 0.75
+    } else {
+        0.0
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CubicSegment {
     pub(crate) start: (f64, f64),

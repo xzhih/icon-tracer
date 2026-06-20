@@ -2,6 +2,7 @@ use super::*;
 
 const STRICT_POLYGON_MAX_DISTANCE: f64 = 1.0;
 const RELAXED_POLYGON_MAX_DISTANCE: f64 = 2.0;
+type PotraceAlphaFn = fn((f64, f64), (f64, f64), (f64, f64)) -> f64;
 
 pub(crate) fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
     optimal_potrace_polygon_indices_with_max_distance(points, STRICT_POLYGON_MAX_DISTANCE)
@@ -673,6 +674,19 @@ pub(crate) fn clamp_point_to_box(point: (f64, f64), center: (f64, f64), radius: 
 pub(crate) fn smooth_potrace_vertices(
     points: &[(f64, f64)],
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    smooth_potrace_vertices_with_alpha(points, potrace_curve_alpha)
+}
+
+pub(crate) fn smooth_area_alpha_potrace_vertices(
+    points: &[(f64, f64)],
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    smooth_potrace_vertices_with_alpha(points, potrace_area_curve_alpha)
+}
+
+pub(crate) fn smooth_potrace_vertices_with_alpha(
+    points: &[(f64, f64)],
+    alpha_for_vertex: PotraceAlphaFn,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
     const ALPHA_MIN: f64 = 0.55;
     const ALPHA_MAX: f64 = 1.0;
 
@@ -690,7 +704,7 @@ pub(crate) fn smooth_potrace_vertices(
         let next = points[(index + 1) % points.len()];
         let entry = edge_midpoint(previous, vertex);
         let exit = edge_midpoint(vertex, next);
-        let alpha = potrace_curve_alpha(previous, vertex, next);
+        let alpha = alpha_for_vertex(previous, vertex, next);
 
         if alpha > ALPHA_MAX {
             segments.push(SvgPathSegment::Line { start, end: vertex });

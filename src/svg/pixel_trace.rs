@@ -24,6 +24,8 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
         canvas_size,
         has_holes,
     )?;
+    let base = base_pixel_potrace_segments_for_points(&path.points, opt_tolerance)?;
+    let mut best_is_base = pixel_potrace_candidates_have_same_path_data(&best, &base);
     let simplified = simplify_collinear_float_points(&path.points);
     let protected_template = pixel_potrace_points_match_protected_template(&path.points);
 
@@ -38,6 +40,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                     &best,
                 ) {
                     best = candidate;
+                    best_is_base = false;
                 }
             }
         }
@@ -60,6 +63,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                     ))
             {
                 best = candidate;
+                best_is_base = false;
             }
         }
     }
@@ -82,6 +86,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 )
             {
                 best = strict_candidate;
+                best_is_base = false;
             }
         }
     }
@@ -107,9 +112,28 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                         ));
             if should_replace {
                 best = candidate;
+                best_is_base = false;
+            }
+        }
+    }
+
+    if best_is_base {
+        if let Some(candidate) =
+            area_alpha_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+        {
+            if pixel_potrace_area_alpha_candidate_is_better(path, canvas_size, &candidate, &best) {
+                best = candidate;
             }
         }
     }
 
     Some(best)
+}
+
+fn pixel_potrace_candidates_have_same_path_data(
+    left: &((f64, f64), Vec<SvgPathSegment>),
+    right: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    compact_svg_path_data_from_segments_without_arcs(left.0, &left.1)
+        == compact_svg_path_data_from_segments_without_arcs(right.0, &right.1)
 }

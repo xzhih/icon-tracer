@@ -84,6 +84,31 @@ pub(crate) fn pixel_potrace_relaxed_point_set_candidate_is_better(
     candidate_bytes < best_bytes
 }
 
+pub(crate) fn pixel_potrace_area_alpha_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_D_BYTES_SAVINGS: usize = 16;
+    const MAX_EXTRA_MASK_PIXELS: usize = 16;
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    if candidate_bytes.saturating_add(MIN_D_BYTES_SAVINGS) > best_bytes {
+        return false;
+    }
+
+    let Some((width, height)) = canvas_size else {
+        return true;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    candidate_error <= best_error.saturating_add(MAX_EXTRA_MASK_PIXELS)
+}
+
 pub(crate) fn pixel_potrace_fitted_candidate_is_close_enough(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
