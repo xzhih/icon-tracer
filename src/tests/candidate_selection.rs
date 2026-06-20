@@ -350,3 +350,75 @@ fn pixel_trace_can_preserve_collinear_boundary_points() {
     assert_eq!(simplified.paths[0].points.len(), 4);
     assert_eq!(preserved.paths[0].points.len(), 8);
 }
+
+#[test]
+fn area_alpha_final_gate_accepts_fragmented_complex_union() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (121.0, 58.0, 202.0, 203.0, 8.0),
+        (57.0, 114.0, 148.0, 191.0, 11.0),
+        (63.0, 109.0, 158.0, 148.0, 10.0),
+        (86.0, 99.0, 149.0, 181.0, 10.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        0.2,
+        Some((bitmap.width(), bitmap.height())),
+        false,
+    )
+    .expect("fixture should produce a candidate");
+    let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce area-alpha candidate");
+
+    assert!(pixel_potrace_area_alpha_final_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &area,
+        &best,
+    ));
+}
+
+#[test]
+fn area_alpha_final_gate_rejects_simple_underfit_union() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (160.0, 65.0, 206.0, 205.0, 23.0),
+        (46.0, 54.0, 139.0, 125.0, 11.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        0.2,
+        Some((bitmap.width(), bitmap.height())),
+        false,
+    )
+    .expect("fixture should produce a candidate");
+    let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce area-alpha candidate");
+
+    assert!(!pixel_potrace_area_alpha_final_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &area,
+        &best,
+    ));
+}

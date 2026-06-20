@@ -109,6 +109,47 @@ pub(crate) fn pixel_potrace_area_alpha_candidate_is_better(
     candidate_error <= best_error.saturating_add(MAX_EXTRA_MASK_PIXELS)
 }
 
+pub(crate) fn pixel_potrace_area_alpha_final_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
+    const MAX_EXTRA_D_BYTES: usize = 8;
+    const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.02;
+    const MIN_BEST_SEGMENTS: usize = 16;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if best.1.len() < MIN_BEST_SEGMENTS {
+        return false;
+    }
+
+    if candidate.1.len() >= best.1.len() {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
+        return false;
+    }
+
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    if candidate_boundary_error > best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR {
+        return false;
+    }
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
+}
+
 pub(crate) fn pixel_potrace_fitted_candidate_is_close_enough(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

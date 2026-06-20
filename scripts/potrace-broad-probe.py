@@ -21,33 +21,33 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POTRACE_PARITY = ROOT / "scripts" / "potrace-parity.py"
 OUT_DIR = ROOT / "target" / "potrace-broad-probe"
-TOTAL_AE_LIMIT = 4442
+TOTAL_AE_LIMIT = 3878
 BROAD_AE_LIMITS = {
     "capsule_0": 115,
     "capsule_1": 63,
     "capsule_2": 65,
     "capsule_3": 131,
     "capsule_4": 77,
-    "capsule_5": 74,
+    "capsule_5": 48,
     "capsule_6": 82,
     "capsule_7": 0,
     "capsule_8": 110,
     "fat_l": 0,
-    "hook_top": 131,
+    "hook_top": 26,
     "kite": 66,
     "low_t": 101,
-    "narrow_h": 89,
+    "narrow_h": 40,
     "offset_hook": 105,
     "offset_t": 95,
     "offset_u": 0,
     "random_union_00": 116,
-    "random_union_01": 94,
+    "random_union_01": 43,
     "random_union_02": 53,
-    "random_union_03": 150,
+    "random_union_03": 60,
     "random_union_04": 63,
     "random_union_05": 124,
     "random_union_06": 110,
-    "random_union_07": 148,
+    "random_union_07": 41,
     "random_union_08": 155,
     "random_union_09": 59,
     "random_union_10": 158,
@@ -56,7 +56,7 @@ BROAD_AE_LIMITS = {
     "random_union_13": 92,
     "random_union_14": 120,
     "random_union_15": 106,
-    "random_union_16": 92,
+    "random_union_16": 33,
     "random_union_17": 111,
     "random_union_18": 133,
     "random_union_19": 118,
@@ -71,7 +71,7 @@ BROAD_AE_LIMITS = {
     "thin_l": 0,
     "trapezoid": 81,
     "wide_e": 0,
-    "wide_h": 123,
+    "wide_h": 46,
     "wide_l": 1,
 }
 
