@@ -300,6 +300,64 @@ fn pixel_compact_fallback_can_replace_exact_off_center_rounded_rect() {
     );
 }
 
+#[test]
+fn pixel_relaxed_point_set_can_replace_complex_candidate_when_closer() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (69.0, 66.0, 144.0, 192.0, 13.0),
+        (62.0, 171.0, 160.0, 205.0, 13.0),
+        (42.0, 74.0, 92.0, 194.0, 10.0),
+        (82.0, 57.0, 147.0, 155.0, 19.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let base_candidate = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        0.2,
+        Some((bitmap.width(), bitmap.height())),
+        false,
+    )
+    .expect("fixture should produce a base candidate");
+    let relaxed_candidate =
+        choose_pixel_potrace_point_set(path, 1.0, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a relaxed candidate");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a final candidate");
+
+    assert_eq!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(relaxed_candidate.0, &relaxed_candidate.1)
+    );
+    assert!(pixel_potrace_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &relaxed_candidate,
+        &base_candidate,
+    ));
+    assert!(
+        pixel_potrace_candidate_mask_error(
+            path,
+            &relaxed_candidate,
+            bitmap.width(),
+            bitmap.height()
+        ) < pixel_potrace_candidate_mask_error(
+            path,
+            &base_candidate,
+            bitmap.width(),
+            bitmap.height()
+        )
+    );
+}
+
 fn compact_path_command_count(data: &str) -> usize {
     data.chars()
         .filter(|character| {

@@ -383,6 +383,22 @@ pub(crate) fn choose_pixel_potrace_point_set(
         }
     }
 
+    if opt_tolerance < PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE
+        && best.1.len() >= MIN_RELAXED_POINT_SET_SEGMENTS
+    {
+        if let Some(candidate) = pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE,
+            canvas_size,
+            has_holes,
+        ) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                best = candidate;
+            }
+        }
+    }
+
     Some(best)
 }
 
@@ -422,6 +438,8 @@ fn compact_strict_pixel_potrace_segments_for_points(
 }
 
 const PIXEL_POTRACE_COMPACT_TOLERANCE: f64 = 0.0;
+const PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE: f64 = 1.0;
+const MIN_RELAXED_POINT_SET_SEGMENTS: usize = 24;
 
 fn select_compact_strict_potrace_candidate(
     path: &TracePath,
@@ -440,17 +458,18 @@ fn select_compact_strict_potrace_candidate(
         return optimized;
     }
 
+    let mut selected = optimized;
     let conservative = optimize_potrace_segments(
         start,
         segments,
         PIXEL_POTRACE_COMPACT_TOLERANCE,
         PIXEL_POTRACE_LINEAR_DEVIATION,
     );
-    if pixel_potrace_candidate_is_better(path, canvas_size, &conservative, &optimized) {
-        conservative
-    } else {
-        optimized
+    if pixel_potrace_candidate_is_better(path, canvas_size, &conservative, &selected) {
+        selected = conservative;
     }
+
+    selected
 }
 
 fn smooth_pixel_potrace_segments_for_polygon_indices(
