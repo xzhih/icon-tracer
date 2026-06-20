@@ -17,6 +17,7 @@ mod stepped_e;
 mod stepped_e_paths;
 mod stepped_f;
 mod t_shape;
+mod t_shape_paths;
 mod transform;
 
 pub(crate) use chevron::*;

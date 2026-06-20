@@ -1,127 +1,44 @@
+use super::t_shape_paths::*;
 use super::*;
 
 pub(crate) fn fit_closed_t_potrace_segments(points: &[(f64, f64)]) -> Option<Vec<SvgPathSegment>> {
     const MIN_AXIS: f64 = 48.0;
     const MIN_ASPECT_RATIO: f64 = 0.75;
     const MAX_ASPECT_RATIO: f64 = 1.25;
-    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.5;
+    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 1.0;
 
-    fit_closed_template_variants(
-        points,
-        MIN_AXIS,
-        MIN_ASPECT_RATIO,
-        MAX_ASPECT_RATIO,
-        MAX_TEMPLATE_BOUNDARY_ERROR,
-        t_potrace_segments,
-        &ORTHOGONAL_TEMPLATE_TRANSFORMS,
-    )
-}
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
 
-pub(crate) fn t_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
-    vec![
-        normalized_rect_cubic(
-            bounds,
-            (0.075, 0.012_5),
-            (0.059_285_714_286, 0.019_078_947_368),
-            (0.040_714_285_714, 0.030_263_157_895),
-            (0.034_285_714_286, 0.036_842_105_263),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.034_285_714_286, 0.036_842_105_263),
-            (-0.014_285_714_286, 0.087_5),
-            (-0.010_714_285_714, 0.215_789_473_684),
-            (0.04, 0.257_894_736_842),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.04, 0.257_894_736_842),
-            (0.072_857_142_857, 0.284_210_526_316),
-            (0.102_142_857_143, 0.289_473_684_211),
-            (0.225, 0.289_473_684_211),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.225, 0.289_473_684_211),
-            (0.342_857_142_857, 0.289_473_684_211),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.342_857_142_857, 0.289_473_684_211),
-            (0.342_857_142_857, 0.596_710_526_316),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.342_857_142_857, 0.596_710_526_316),
-            (0.342_857_142_857, 0.881_578_947_368),
-            (0.344_285_714_286, 0.906_578_947_368),
-            (0.356_428_571_429, 0.930_921_052_632),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.356_428_571_429, 0.930_921_052_632),
-            (0.380_714_285_714, 0.980_263_157_895),
-            (0.422_142_857_143, 1.0),
-            (0.5, 1.0),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.5, 1.0),
-            (0.577_857_142_857, 1.0),
-            (0.619_285_714_286, 0.980_263_157_895),
-            (0.643_571_428_571, 0.930_921_052_632),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.643_571_428_571, 0.930_921_052_632),
-            (0.655_714_285_714, 0.906_578_947_368),
-            (0.657_142_857_143, 0.881_578_947_368),
-            (0.657_142_857_143, 0.596_710_526_316),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.657_142_857_143, 0.596_710_526_316),
-            (0.657_142_857_143, 0.289_473_684_211),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.657_142_857_143, 0.289_473_684_211),
-            (0.777_142_857_143, 0.289_473_684_211),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.777_142_857_143, 0.289_473_684_211),
-            (0.877_857_142_857, 0.289_473_684_211),
-            (0.900_714_285_714, 0.287_5),
-            (0.925, 0.276_973_684_211),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.925, 0.276_973_684_211),
-            (0.978_571_428_571, 0.254_605_263_158),
-            (1.0, 0.216_447_368_421),
-            (1.0, 0.144_736_842_105),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (1.0, 0.144_736_842_105),
-            (1.0, 0.073_026_315_789),
-            (0.978_571_428_571, 0.034_868_421_053),
-            (0.925, 0.012_5),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.925, 0.012_5),
-            (0.898_571_428_571, 0.001_315_789_474),
-            (0.869_285_714_286, 0.0),
-            (0.5, 0.0),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.5, 0.0),
-            (0.130_714_285_714, 0.0),
-            (0.101_428_571_429, 0.001_315_789_474),
-            (0.075, 0.012_5),
-        ),
-    ]
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    let path = TracePath {
+        points: points.to_vec(),
+        is_hole: false,
+    };
+    let candidates = [
+        t_base_potrace_segments(bounds),
+        t_mx_potrace_segments(bounds),
+        t_my_potrace_segments(bounds),
+        t_r90_potrace_segments(bounds),
+        t_r180_potrace_segments(bounds),
+        t_r270_potrace_segments(bounds),
+    ];
+
+    candidates
+        .into_iter()
+        .filter_map(|segments| {
+            let candidate = (segments[0].start(), segments.clone());
+            let error = pixel_potrace_candidate_boundary_rms_error(&path, &candidate);
+            (error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some((error, segments))
+        })
+        .min_by(|(left_error, _), (right_error, _)| left_error.total_cmp(right_error))
+        .map(|(_, segments)| segments)
 }

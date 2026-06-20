@@ -429,22 +429,41 @@ fn pixel_t_shape_uses_potrace_template() {
 }
 
 #[test]
-fn pixel_t_shape_template_accepts_rotated_orientation() {
-    let bitmap = rotate_bitmap_clockwise(&parity_t_shape_bitmap());
-    let traced = trace_bitmap(
-        &bitmap,
-        TraceOptions {
-            turd_size: 2,
-            opt_tolerance: 0.2,
-            contour_mode: ContourMode::Pixel,
-            preserve_collinear: true,
-        },
-    );
-    let path = traced.paths.first().expect("fixture should trace one path");
-    let segments = fit_closed_t_potrace_segments(&path.points)
-        .expect("rotated T shape should fit the transformed Potrace template");
+fn pixel_t_shape_template_accepts_mirrored_and_rotated_orientations() {
+    for bitmap in [
+        mirror_bitmap_x(&parity_t_shape_bitmap()),
+        mirror_bitmap_y(&parity_t_shape_bitmap()),
+        rotate_bitmap_clockwise(&parity_t_shape_bitmap()),
+        rotate_bitmap_half_turn(&parity_t_shape_bitmap()),
+        rotate_bitmap_counter_clockwise(&parity_t_shape_bitmap()),
+    ] {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let segments = fit_closed_t_potrace_segments(&path.points)
+            .expect("oriented T shape should fit a direction-specific Potrace template");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("oriented T path should render");
 
-    assert_eq!(segments.len(), 16);
+        assert_eq!(segments.len(), 16, "{segments:?}");
+        assert!(compact_path_command_count(&data) <= 17, "{data}");
+    }
 }
 
 #[test]
