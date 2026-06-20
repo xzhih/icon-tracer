@@ -108,7 +108,7 @@ fn pixel_rounded_rect_union_allows_closer_fitted_override() {
 }
 
 #[test]
-fn pixel_compact_fallback_keeps_asymmetric_strict_polygon() {
+fn pixel_compact_fallback_uses_conservative_strict_when_closer() {
     let bitmap = rounded_rect_union_bitmap(&[
         (54.0, 143.0, 122.0, 175.0, 16.0),
         (108.0, 76.0, 187.0, 186.0, 12.0),
@@ -128,6 +128,7 @@ fn pixel_compact_fallback_keeps_asymmetric_strict_polygon() {
         choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
             .expect("fixture should produce a candidate");
     let strict_candidate = strict_pixel_candidate(path);
+    let conservative_strict_candidate = strict_pixel_candidate_with_tolerance(path, 0.0);
     let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
     let fitted_first = fitted.first().expect("fixture should fit smooth segments");
     let fitted_candidate = optimize_potrace_segments(
@@ -139,7 +140,31 @@ fn pixel_compact_fallback_keeps_asymmetric_strict_polygon() {
 
     assert_eq!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(
+            conservative_strict_candidate.0,
+            &conservative_strict_candidate.1,
+        )
+    );
+    assert_ne!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
         compact_svg_path_data_from_segments(strict_candidate.0, &strict_candidate.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(
+            path,
+            &conservative_strict_candidate,
+            bitmap.width(),
+            bitmap.height()
+        ) < pixel_potrace_candidate_mask_error(
+            path,
+            &strict_candidate,
+            bitmap.width(),
+            bitmap.height()
+        )
+    );
+    assert!(
+        pixel_potrace_candidate_boundary_rms_error(path, &conservative_strict_candidate)
+            < pixel_potrace_candidate_boundary_rms_error(path, &strict_candidate)
     );
     assert!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1).len()
@@ -186,11 +211,23 @@ fn pixel_compact_fallback_skips_axis_symmetric_t_union() {
 }
 
 fn strict_pixel_candidate(path: &TracePath) -> ((f64, f64), Vec<SvgPathSegment>) {
+    strict_pixel_candidate_with_tolerance(path, 0.2)
+}
+
+fn strict_pixel_candidate_with_tolerance(
+    path: &TracePath,
+    opt_tolerance: f64,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
     let polygon = optimal_potrace_polygon_indices(&path.points);
     let vertices = adjust_potrace_vertices(&path.points, &polygon, 0.5);
     let (start, segments) =
         smooth_potrace_vertices(&vertices).expect("fixture should produce Potrace vertices");
-    optimize_potrace_segments(start, &segments, 0.2, PIXEL_POTRACE_LINEAR_DEVIATION)
+    optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    )
 }
 
 #[test]

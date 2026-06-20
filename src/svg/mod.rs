@@ -365,9 +365,12 @@ pub(crate) fn choose_pixel_potrace_point_set(
     }
 
     if !protected_template {
-        if let Some(strict_candidate) =
-            strict_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
-        {
+        if let Some(strict_candidate) = compact_strict_pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            opt_tolerance,
+            canvas_size,
+        ) {
             if pixel_potrace_compact_candidate_is_better(
                 path,
                 canvas_size,
@@ -401,18 +404,53 @@ pub(crate) fn pixel_potrace_segments_for_points(
     )
 }
 
-fn strict_pixel_potrace_segments_for_points(
+fn compact_strict_pixel_potrace_segments_for_points(
+    path: &TracePath,
     points: &[(f64, f64)],
     opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
     let polygon = optimal_potrace_polygon_indices(points);
     let (start, segments) = smooth_pixel_potrace_segments_for_polygon_indices(points, &polygon)?;
-    Some(optimize_potrace_segments(
+    Some(select_compact_strict_potrace_candidate(
+        path,
+        canvas_size,
         start,
         &segments,
         opt_tolerance,
-        PIXEL_POTRACE_LINEAR_DEVIATION,
     ))
+}
+
+const PIXEL_POTRACE_COMPACT_TOLERANCE: f64 = 0.0;
+
+fn select_compact_strict_potrace_candidate(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    start: (f64, f64),
+    segments: &[SvgPathSegment],
+    opt_tolerance: f64,
+) -> ((f64, f64), Vec<SvgPathSegment>) {
+    let optimized = optimize_potrace_segments(
+        start,
+        segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    );
+    if opt_tolerance <= PIXEL_POTRACE_COMPACT_TOLERANCE {
+        return optimized;
+    }
+
+    let conservative = optimize_potrace_segments(
+        start,
+        segments,
+        PIXEL_POTRACE_COMPACT_TOLERANCE,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    );
+    if pixel_potrace_candidate_is_better(path, canvas_size, &conservative, &optimized) {
+        conservative
+    } else {
+        optimized
+    }
 }
 
 fn smooth_pixel_potrace_segments_for_polygon_indices(
@@ -500,7 +538,8 @@ pub(crate) fn choose_pixel_potrace_segments(
         opt_tolerance,
         PIXEL_POTRACE_LINEAR_DEVIATION,
     );
-    let strict_candidate = best.clone();
+    let compact_strict_candidate =
+        select_compact_strict_potrace_candidate(path, canvas_size, start, &segments, opt_tolerance);
 
     if path.points.len() >= 12 {
         let mut preserve_primitive = false;
@@ -862,12 +901,12 @@ pub(crate) fn choose_pixel_potrace_segments(
             && pixel_potrace_compact_candidate_is_better(
                 path,
                 canvas_size,
-                &strict_candidate,
+                &compact_strict_candidate,
                 &best,
                 true,
             )
         {
-            best = strict_candidate;
+            best = compact_strict_candidate;
         }
     }
 
