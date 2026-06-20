@@ -886,12 +886,10 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
-            if let Some(candidate) =
-                bestpolygon_area_alpha_pixel_potrace_segments_for_points(
-                    &path.points,
-                    opt_tolerance,
-                )
-            {
+            if let Some(candidate) = bestpolygon_area_alpha_pixel_potrace_segments_for_points(
+                &path.points,
+                opt_tolerance,
+            ) {
                 if pixel_potrace_area_alpha_final_candidate_is_better(
                     path,
                     canvas_size,

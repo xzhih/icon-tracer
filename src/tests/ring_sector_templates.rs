@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn pixel_ring_sector_uses_annular_sector_fallback() {
-    let bitmap = ring_sector_bitmap(120.0, 420.0, 48.0, 82.0);
+    let bitmap = ring_sector_bitmap(70.0, 290.0, 38.0, 80.0);
     let traced = trace_bitmap(
         &bitmap,
         TraceOptions {
@@ -32,6 +32,27 @@ fn pixel_ring_sector_uses_annular_sector_fallback() {
 
     assert!(segments.len() <= 12, "{segments:?}");
     assert!(compact_path_command_count(&data) <= 24, "{data}");
+}
+
+#[test]
+fn pixel_thin_ring_sector_rejects_annular_sector_fallback() {
+    let bitmap = ring_sector_bitmap(120.0, 420.0, 48.0, 82.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+
+    assert!(fit_closed_annular_sector_potrace_segments(
+        &path.points,
+        Some((bitmap.width(), bitmap.height()))
+    )
+    .is_none());
 }
 
 #[test]

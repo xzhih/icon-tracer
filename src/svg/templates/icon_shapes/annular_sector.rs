@@ -6,6 +6,7 @@ pub(crate) fn fit_closed_annular_sector_potrace_segments(
 ) -> Option<Vec<SvgPathSegment>> {
     const MIN_OUTER_RADIUS: f64 = 24.0;
     const MIN_STROKE_WIDTH: f64 = 8.0;
+    const MAX_INNER_TO_OUTER_RATIO: f64 = 0.53;
     const INNER_RADIUS_PERCENTILE: f64 = 0.15;
     const OUTER_RADIUS_PERCENTILE: f64 = 0.85;
     const MAX_TRIMMED_RADIAL_ERROR: f64 = 1.35;
@@ -37,6 +38,9 @@ pub(crate) fn fit_closed_annular_sector_potrace_segments(
     let inner_radius = sorted_percentile(&distances, INNER_RADIUS_PERCENTILE).round();
     let outer_radius = sorted_percentile(&distances, OUTER_RADIUS_PERCENTILE).round();
     if outer_radius < MIN_OUTER_RADIUS || outer_radius - inner_radius < MIN_STROKE_WIDTH {
+        return None;
+    }
+    if inner_radius / outer_radius > MAX_INNER_TO_OUTER_RATIO {
         return None;
     }
 
