@@ -530,3 +530,48 @@ fn bestpolygon_area_alpha_gate_rejects_wide_h_regression() {
         compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
     );
 }
+
+#[test]
+fn bestpolygon_area_alpha_smoothing_gate_accepts_capsule_rescue() {
+    const CANVAS: usize = 256;
+    let start = (34.0, 128.0);
+    let end = (222.0, 116.0);
+    let half_width = 18.0;
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                distance_squared_to_segment((x as f64 + 0.5, y as f64 + 0.5), start, end)
+                    .0
+                    .sqrt()
+                    <= half_width
+            })
+        })
+        .collect::<Vec<_>>();
+    let bitmap = Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture should build");
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = bestpolygon_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon candidate");
+    let area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+    let selected =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a selected candidate");
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(path, &best, bitmap.width(), bitmap.height())
+    );
+}

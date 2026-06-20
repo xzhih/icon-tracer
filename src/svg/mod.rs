@@ -897,6 +897,11 @@ pub(crate) fn choose_pixel_potrace_segments(
                     canvas_size,
                     &candidate,
                     &best,
+                ) || pixel_potrace_area_alpha_smoothing_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
                 ) {
                     best = candidate;
                 }
