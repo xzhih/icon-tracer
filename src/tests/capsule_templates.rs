@@ -193,6 +193,76 @@ fn strict_pixel_candidate(path: &TracePath) -> ((f64, f64), Vec<SvgPathSegment>)
     optimize_potrace_segments(start, &segments, 0.2, PIXEL_POTRACE_LINEAR_DEVIATION)
 }
 
+#[test]
+fn pixel_compact_fallback_can_replace_exact_off_center_rounded_rect() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (160.0, 65.0, 206.0, 205.0, 23.0),
+        (46.0, 54.0, 139.0, 125.0, 11.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced
+        .paths
+        .iter()
+        .find(|path| {
+            FloatBounds::from_points(&path.points).is_some_and(|bounds| bounds.min_x < 100.0)
+        })
+        .expect("fixture should include the left rounded rect");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a candidate");
+    let strict_candidate = strict_pixel_candidate(path);
+    let rounded_rect = fit_closed_rounded_rect_potrace_segments(&path.points)
+        .expect("fixture should fit a rounded rect primitive");
+    let rounded_rect_candidate = (rounded_rect[0].start(), rounded_rect);
+
+    assert_eq!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(strict_candidate.0, &strict_candidate.1)
+    );
+    assert!(pixel_potrace_compact_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &strict_candidate,
+        &rounded_rect_candidate,
+        true,
+    ));
+    assert!(!pixel_potrace_compact_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &strict_candidate,
+        &rounded_rect_candidate,
+        false,
+    ));
+    assert_ne!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(rounded_rect_candidate.0, &rounded_rect_candidate.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(
+            path,
+            &rounded_rect_candidate,
+            bitmap.width(),
+            bitmap.height()
+        ) <= 1
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height())
+            <= 190
+    );
+    assert!(
+        pixel_potrace_horizontal_mirror_mismatch_ratio(path, bitmap.width(), bitmap.height())
+            >= 0.3
+    );
+}
+
 fn compact_path_command_count(data: &str) -> usize {
     data.chars()
         .filter(|character| {

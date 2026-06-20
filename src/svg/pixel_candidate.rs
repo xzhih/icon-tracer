@@ -130,6 +130,7 @@ pub(crate) fn pixel_potrace_compact_candidate_is_better(
     canvas_size: Option<(usize, usize)>,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
+    allow_exact_best_replacement: bool,
 ) -> bool {
     const MIN_MASK_SLACK_PIXELS: usize = 256;
     const MAX_MASK_SLACK_RATIO: f64 = 0.004;
@@ -143,7 +144,7 @@ pub(crate) fn pixel_potrace_compact_candidate_is_better(
     const MAX_COMPACT_FOREGROUND_DELTA: isize = -120;
     const MIN_HORIZONTAL_MIRROR_MISMATCH_RATIO: f64 = 0.3;
     const MAX_RELATIVE_PATH_BYTES: usize = 90;
-    const MIN_SEGMENT_SAVINGS: usize = 4;
+    const MIN_SEGMENT_SAVINGS: usize = 3;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -151,19 +152,22 @@ pub(crate) fn pixel_potrace_compact_candidate_is_better(
 
     let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
     let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if best_error < MIN_BEST_MASK_ERROR
-        || candidate_error < best_error.saturating_mul(MIN_RELATIVE_MASK_ERROR)
-    {
+    if best_error < MIN_BEST_MASK_ERROR {
+        if !allow_exact_best_replacement {
+            return false;
+        }
+    } else if candidate_error < best_error.saturating_mul(MIN_RELATIVE_MASK_ERROR) {
         return false;
     }
 
     let slack = MIN_MASK_SLACK_PIXELS
         .max((width.saturating_mul(height) as f64 * MAX_MASK_SLACK_RATIO).round() as usize);
     if candidate_error > best_error.saturating_add(slack)
-        || candidate_error
-            > best_error
-                .saturating_mul(MAX_RELATIVE_MASK_ERROR)
-                .saturating_add(EXTRA_RELATIVE_MASK_PIXELS)
+        || (best_error >= MIN_BEST_MASK_ERROR
+            && candidate_error
+                > best_error
+                    .saturating_mul(MAX_RELATIVE_MASK_ERROR)
+                    .saturating_add(EXTRA_RELATIVE_MASK_PIXELS))
     {
         return false;
     }

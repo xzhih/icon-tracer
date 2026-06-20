@@ -356,9 +356,26 @@ pub(crate) fn choose_pixel_potrace_point_set(
                         canvas_size,
                         &best,
                         &candidate,
+                        false,
                     ))
             {
                 best = candidate;
+            }
+        }
+    }
+
+    if !protected_template {
+        if let Some(strict_candidate) =
+            strict_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+        {
+            if pixel_potrace_compact_candidate_is_better(
+                path,
+                canvas_size,
+                &strict_candidate,
+                &best,
+                true,
+            ) {
+                best = strict_candidate;
             }
         }
     }
@@ -384,6 +401,28 @@ pub(crate) fn pixel_potrace_segments_for_points(
     )
 }
 
+fn strict_pixel_potrace_segments_for_points(
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = optimal_potrace_polygon_indices(points);
+    let (start, segments) = smooth_pixel_potrace_segments_for_polygon_indices(points, &polygon)?;
+    Some(optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    ))
+}
+
+fn smooth_pixel_potrace_segments_for_polygon_indices(
+    points: &[(f64, f64)],
+    polygon: &[usize],
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let vertices = adjust_potrace_vertices(points, polygon, 0.5);
+    smooth_potrace_vertices(&vertices)
+}
+
 pub(crate) fn relaxed_pixel_potrace_segments_for_points(
     points: &[(f64, f64)],
     opt_tolerance: f64,
@@ -407,8 +446,7 @@ pub(crate) fn pixel_potrace_segments_for_polygon_indices(
     canvas_size: Option<(usize, usize)>,
     has_holes: bool,
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
-    let vertices = adjust_potrace_vertices(points, polygon, 0.5);
-    let (start, segments) = smooth_potrace_vertices(&vertices)?;
+    let (start, segments) = smooth_pixel_potrace_segments_for_polygon_indices(points, polygon)?;
 
     Some(choose_pixel_potrace_segments(
         reference_path,
@@ -826,6 +864,7 @@ pub(crate) fn choose_pixel_potrace_segments(
                 canvas_size,
                 &strict_candidate,
                 &best,
+                true,
             )
         {
             best = strict_candidate;
