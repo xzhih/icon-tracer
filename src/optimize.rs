@@ -1,6 +1,6 @@
 use crate::components::{connected_components, RawComponent};
 use crate::raster::{composite_over_background, otsu_threshold};
-use crate::svg::path_to_svg_data;
+use crate::svg::path_to_svg_data_with_context;
 use crate::{
     trace_bitmap, trace_scalar_field, AlphaBackground, BinaryMask, BitmapError, ContourMode,
     IconDiffMetrics, IconOptimizationCandidate, IconOptimizationResult, IconOptimizeOptions,
@@ -533,10 +533,13 @@ fn traced_point_count(traced: &TracedBitmap) -> usize {
 fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize {
     let options = SvgRenderOptions::from(options);
     let has_holes = traced.paths.iter().any(|path| path.is_hole);
+    let has_sibling_paths = traced.paths.len() > 1;
     traced
         .paths
         .iter()
-        .filter_map(|path| path_to_svg_data(path, options, None, has_holes))
+        .filter_map(|path| {
+            path_to_svg_data_with_context(path, options, None, has_holes, has_sibling_paths)
+        })
         .map(|path_data| {
             path_data
                 .split_whitespace()

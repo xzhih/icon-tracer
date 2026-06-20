@@ -175,11 +175,18 @@ impl TracedBitmap {
 
     pub fn to_svg_with_render_options(&self, options: SvgRenderOptions) -> String {
         let has_holes = self.paths.iter().any(|path| path.is_hole);
+        let has_sibling_paths = self.paths.len() > 1;
         let path_data = self
             .paths
             .iter()
             .filter_map(|path| {
-                svg::path_to_svg_data(path, options, Some((self.width, self.height)), has_holes)
+                svg::path_to_svg_data_with_context(
+                    path,
+                    options,
+                    Some((self.width, self.height)),
+                    has_holes,
+                    has_sibling_paths,
+                )
             })
             .collect::<Vec<_>>()
             .join(" ");

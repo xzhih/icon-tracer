@@ -249,6 +249,61 @@ fn relaxed_point_set_candidate_selection_accepts_larger_smoothing_gain() {
 }
 
 #[test]
+fn sibling_paths_can_accept_dominating_strict_candidate() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (157.0, 125.0, 200.0, 191.0, 18.0),
+        (115.0, 150.0, 155.0, 189.0, 12.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+
+    assert_eq!(traced.paths.len(), 2);
+
+    let mut improved = false;
+    for path in &traced.paths {
+        let isolated = choose_pixel_potrace_point_set_with_context(
+            path,
+            0.2,
+            Some((bitmap.width(), bitmap.height())),
+            false,
+            false,
+        )
+        .expect("fixture path should produce isolated candidate");
+        let sibling = choose_pixel_potrace_point_set_with_context(
+            path,
+            0.2,
+            Some((bitmap.width(), bitmap.height())),
+            false,
+            true,
+        )
+        .expect("fixture path should produce sibling-aware candidate");
+
+        let isolated_error =
+            pixel_potrace_candidate_mask_error(path, &isolated, bitmap.width(), bitmap.height());
+        let sibling_error =
+            pixel_potrace_candidate_mask_error(path, &sibling, bitmap.width(), bitmap.height());
+        let sibling_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &sibling);
+        let isolated_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &isolated);
+
+        if sibling_error < isolated_error {
+            improved = true;
+            assert_eq!(sibling_error, 18);
+            assert_eq!(sibling.1.len(), 8);
+            assert!(sibling_boundary_error < isolated_boundary_error);
+        }
+    }
+
+    assert!(improved);
+}
+
+#[test]
 fn coverage_threshold_rasterizer_matches_integer_square_pixels() {
     let path = TracePath {
         is_hole: false,

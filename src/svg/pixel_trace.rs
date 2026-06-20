@@ -1,0 +1,115 @@
+use super::*;
+
+#[cfg(test)]
+pub(crate) fn choose_pixel_potrace_point_set(
+    path: &TracePath,
+    opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    choose_pixel_potrace_point_set_with_context(path, opt_tolerance, canvas_size, has_holes, false)
+}
+
+pub(crate) fn choose_pixel_potrace_point_set_with_context(
+    path: &TracePath,
+    opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
+    has_sibling_paths: bool,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let mut best = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        opt_tolerance,
+        canvas_size,
+        has_holes,
+    )?;
+    let simplified = simplify_collinear_float_points(&path.points);
+    let protected_template = pixel_potrace_points_match_protected_template(&path.points);
+
+    if simplified.len() >= 3 && simplified.len() < path.points.len() {
+        if let Some(capsule) = fit_closed_capsule_potrace_segments(&simplified) {
+            if let Some(first) = capsule.first() {
+                let candidate = (first.start(), capsule);
+                if pixel_potrace_primitive_candidate_is_close_enough(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
+                    best = candidate;
+                }
+            }
+        }
+
+        if let Some(candidate) = pixel_potrace_segments_for_points(
+            path,
+            &simplified,
+            opt_tolerance,
+            canvas_size,
+            has_holes,
+        ) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                && (protected_template
+                    || !pixel_potrace_compact_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &best,
+                        &candidate,
+                        false,
+                    ))
+            {
+                best = candidate;
+            }
+        }
+    }
+
+    if !protected_template {
+        if let Some(strict_candidate) = compact_strict_pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            opt_tolerance,
+            canvas_size,
+        ) {
+            if (has_sibling_paths
+                && pixel_potrace_candidate_is_better(path, canvas_size, &strict_candidate, &best))
+                || pixel_potrace_compact_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &strict_candidate,
+                    &best,
+                    true,
+                )
+            {
+                best = strict_candidate;
+            }
+        }
+    }
+
+    if opt_tolerance < PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE
+        && best.1.len() >= MIN_RELAXED_POINT_SET_SEGMENTS
+    {
+        if let Some(candidate) = pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE,
+            canvas_size,
+            has_holes,
+        ) {
+            let should_replace =
+                pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                    || (best.1.len() >= MIN_RELAXED_SMOOTHING_SACRIFICE_SEGMENTS
+                        && pixel_potrace_relaxed_point_set_candidate_is_better(
+                            path,
+                            canvas_size,
+                            &candidate,
+                            &best,
+                        ));
+            if should_replace {
+                best = candidate;
+            }
+        }
+    }
+
+    Some(best)
+}

@@ -1,6 +1,7 @@
 mod cubic;
 mod path_data;
 mod pixel_candidate;
+mod pixel_trace;
 mod potrace_optimize;
 mod potrace_polygon;
 mod templates;
@@ -8,6 +9,7 @@ mod templates;
 pub(crate) use cubic::*;
 pub(crate) use path_data::*;
 pub(crate) use pixel_candidate::*;
+pub(crate) use pixel_trace::*;
 pub(crate) use potrace_optimize::*;
 pub(crate) use potrace_polygon::*;
 pub(crate) use templates::*;
@@ -81,11 +83,22 @@ pub(crate) fn path_data_has_arc_commands(path_data: &str) -> bool {
     path_data.bytes().any(|byte| matches!(byte, b'A' | b'a'))
 }
 
+#[cfg(test)]
 pub(crate) fn path_to_svg_data(
     path: &TracePath,
     options: SvgRenderOptions,
     canvas_size: Option<(usize, usize)>,
     has_holes: bool,
+) -> Option<String> {
+    path_to_svg_data_with_context(path, options, canvas_size, has_holes, false)
+}
+
+pub(crate) fn path_to_svg_data_with_context(
+    path: &TracePath,
+    options: SvgRenderOptions,
+    canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
+    has_sibling_paths: bool,
 ) -> Option<String> {
     match options.curve_mode {
         CurveMode::Polygon => path_to_polygon_svg_data(path),
@@ -98,6 +111,7 @@ pub(crate) fn path_to_svg_data(
             options.pixel_potrace,
             canvas_size,
             has_holes,
+            has_sibling_paths,
         ),
     }
 }
@@ -227,14 +241,20 @@ pub(crate) fn path_to_potrace_svg_data(
     pixel_potrace: bool,
     canvas_size: Option<(usize, usize)>,
     has_holes: bool,
+    has_sibling_paths: bool,
 ) -> Option<String> {
     if path.points.len() < 3 {
         return path_to_polygon_svg_data(path);
     }
 
     if pixel_potrace {
-        let (start, segments) =
-            choose_pixel_potrace_point_set(path, opt_tolerance, canvas_size, has_holes)?;
+        let (start, segments) = choose_pixel_potrace_point_set_with_context(
+            path,
+            opt_tolerance,
+            canvas_size,
+            has_holes,
+            has_sibling_paths,
+        )?;
         return Some(compact_svg_path_data_from_segments_without_arcs(
             start, &segments,
         ));
@@ -309,106 +329,6 @@ pub(crate) fn choose_non_pixel_fit_candidate(
     } else {
         (start, segments)
     }
-}
-
-pub(crate) fn choose_pixel_potrace_point_set(
-    path: &TracePath,
-    opt_tolerance: f64,
-    canvas_size: Option<(usize, usize)>,
-    has_holes: bool,
-) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
-    let mut best = pixel_potrace_segments_for_points(
-        path,
-        &path.points,
-        opt_tolerance,
-        canvas_size,
-        has_holes,
-    )?;
-    let simplified = simplify_collinear_float_points(&path.points);
-    let protected_template = pixel_potrace_points_match_protected_template(&path.points);
-
-    if simplified.len() >= 3 && simplified.len() < path.points.len() {
-        if let Some(capsule) = fit_closed_capsule_potrace_segments(&simplified) {
-            if let Some(first) = capsule.first() {
-                let candidate = (first.start(), capsule);
-                if pixel_potrace_primitive_candidate_is_close_enough(
-                    path,
-                    canvas_size,
-                    &candidate,
-                    &best,
-                ) {
-                    best = candidate;
-                }
-            }
-        }
-
-        if let Some(candidate) = pixel_potrace_segments_for_points(
-            path,
-            &simplified,
-            opt_tolerance,
-            canvas_size,
-            has_holes,
-        ) {
-            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
-                && (protected_template
-                    || !pixel_potrace_compact_candidate_is_better(
-                        path,
-                        canvas_size,
-                        &best,
-                        &candidate,
-                        false,
-                    ))
-            {
-                best = candidate;
-            }
-        }
-    }
-
-    if !protected_template {
-        if let Some(strict_candidate) = compact_strict_pixel_potrace_segments_for_points(
-            path,
-            &path.points,
-            opt_tolerance,
-            canvas_size,
-        ) {
-            if pixel_potrace_compact_candidate_is_better(
-                path,
-                canvas_size,
-                &strict_candidate,
-                &best,
-                true,
-            ) {
-                best = strict_candidate;
-            }
-        }
-    }
-
-    if opt_tolerance < PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE
-        && best.1.len() >= MIN_RELAXED_POINT_SET_SEGMENTS
-    {
-        if let Some(candidate) = pixel_potrace_segments_for_points(
-            path,
-            &path.points,
-            PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE,
-            canvas_size,
-            has_holes,
-        ) {
-            let should_replace =
-                pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
-                    || (best.1.len() >= MIN_RELAXED_SMOOTHING_SACRIFICE_SEGMENTS
-                        && pixel_potrace_relaxed_point_set_candidate_is_better(
-                            path,
-                            canvas_size,
-                            &candidate,
-                            &best,
-                        ));
-            if should_replace {
-                best = candidate;
-            }
-        }
-    }
-
-    Some(best)
 }
 
 pub(crate) fn pixel_potrace_segments_for_points(
