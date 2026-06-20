@@ -108,7 +108,7 @@ fn pixel_rounded_rect_union_allows_closer_fitted_override() {
 }
 
 #[test]
-fn pixel_compact_fallback_uses_conservative_strict_when_closer() {
+fn pixel_area_alpha_rescue_can_replace_conservative_strict_when_closer() {
     let bitmap = rounded_rect_union_bitmap(&[
         (54.0, 143.0, 122.0, 175.0, 16.0),
         (108.0, 76.0, 187.0, 186.0, 12.0),
@@ -129,6 +129,8 @@ fn pixel_compact_fallback_uses_conservative_strict_when_closer() {
             .expect("fixture should produce a candidate");
     let strict_candidate = strict_pixel_candidate(path);
     let conservative_strict_candidate = strict_pixel_candidate_with_tolerance(path, 0.0);
+    let area_alpha_candidate = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce an area-alpha candidate");
     let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
     let fitted_first = fitted.first().expect("fixture should fit smooth segments");
     let fitted_candidate = optimize_potrace_segments(
@@ -140,14 +142,18 @@ fn pixel_compact_fallback_uses_conservative_strict_when_closer() {
 
     assert_eq!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
-        compact_svg_path_data_from_segments(
-            conservative_strict_candidate.0,
-            &conservative_strict_candidate.1,
-        )
+        compact_svg_path_data_from_segments(area_alpha_candidate.0, &area_alpha_candidate.1)
     );
     assert_ne!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
         compact_svg_path_data_from_segments(strict_candidate.0, &strict_candidate.1)
+    );
+    assert_ne!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(
+            conservative_strict_candidate.0,
+            &conservative_strict_candidate.1,
+        )
     );
     assert!(
         pixel_potrace_candidate_mask_error(
@@ -165,6 +171,19 @@ fn pixel_compact_fallback_uses_conservative_strict_when_closer() {
     assert!(
         pixel_potrace_candidate_boundary_rms_error(path, &conservative_strict_candidate)
             < pixel_potrace_candidate_boundary_rms_error(path, &strict_candidate)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(
+                path,
+                &conservative_strict_candidate,
+                bitmap.width(),
+                bitmap.height()
+            )
+    );
+    assert!(
+        pixel_potrace_candidate_boundary_rms_error(path, &final_candidate)
+            < pixel_potrace_candidate_boundary_rms_error(path, &conservative_strict_candidate)
     );
     assert!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1).len()

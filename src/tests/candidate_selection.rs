@@ -389,6 +389,42 @@ fn area_alpha_final_gate_accepts_fragmented_complex_union() {
 }
 
 #[test]
+fn area_alpha_final_gate_accepts_strong_mask_and_byte_rescue() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (54.0, 143.0, 122.0, 175.0, 16.0),
+        (108.0, 76.0, 187.0, 186.0, 12.0),
+        (42.0, 65.0, 162.0, 206.0, 25.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let best = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        0.2,
+        Some((bitmap.width(), bitmap.height())),
+        false,
+    )
+    .expect("fixture should produce a candidate");
+    let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce area-alpha candidate");
+
+    assert!(pixel_potrace_area_alpha_final_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &area,
+        &best,
+    ));
+}
+
+#[test]
 fn area_alpha_final_gate_rejects_simple_underfit_union() {
     let bitmap = rounded_rect_union_bitmap(&[
         (160.0, 65.0, 206.0, 205.0, 23.0),
