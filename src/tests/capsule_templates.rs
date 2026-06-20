@@ -72,6 +72,41 @@ fn pixel_vertical_capsule_prefers_regular_template_when_boundary_is_closer() {
     );
 }
 
+#[test]
+fn pixel_rounded_rect_union_allows_closer_fitted_override() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (62.0, 65.0, 104.0, 125.0, 15.0),
+        (88.0, 97.0, 145.0, 172.0, 27.0),
+        (36.0, 66.0, 146.0, 205.0, 28.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a candidate");
+    let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
+    let first = fitted.first().expect("fixture should fit smooth segments");
+    let fitted_candidate =
+        optimize_potrace_segments(first.start(), &fitted, 0.2, PIXEL_POTRACE_LINEAR_DEVIATION);
+
+    assert_eq!(
+        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments(fitted_candidate.0, &fitted_candidate.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height())
+            <= 65
+    );
+}
+
 fn compact_path_command_count(data: &str) -> usize {
     data.chars()
         .filter(|character| {

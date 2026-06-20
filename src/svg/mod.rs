@@ -451,6 +451,7 @@ pub(crate) fn choose_pixel_potrace_segments(
 
     if path.points.len() >= 12 {
         let mut preserve_primitive = false;
+        let mut allow_fitted_override = false;
 
         if has_holes {
             if let Some(ring_ellipse) =
@@ -541,6 +542,7 @@ pub(crate) fn choose_pixel_potrace_segments(
                     ) {
                         best = candidate;
                         preserve_primitive = true;
+                        allow_fitted_override = true;
                     }
                 }
             }
@@ -786,7 +788,7 @@ pub(crate) fn choose_pixel_potrace_segments(
             }
         }
 
-        if !preserve_primitive {
+        if !preserve_primitive || allow_fitted_override {
             let fitted = fit_closed_smooth_potrace_segments(&path.points, false);
             if let Some(first) = fitted.first() {
                 let candidate = optimize_potrace_segments(
