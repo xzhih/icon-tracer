@@ -520,6 +520,43 @@ fn pixel_chevron_primitive_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_chevron_template_accepts_mirrored_and_rotated_orientations() {
+    for bitmap in [
+        mirror_bitmap_y(&parity_chevron_bitmap()),
+        rotate_bitmap_clockwise(&parity_chevron_bitmap()),
+        rotate_bitmap_half_turn(&parity_chevron_bitmap()),
+        rotate_bitmap_counter_clockwise(&parity_chevron_bitmap()),
+    ] {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let segments = fit_closed_chevron_potrace_segments(&path.points)
+            .expect("oriented chevron should fit a direction-specific Potrace template");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("oriented chevron path should render");
+
+        assert!(matches!(segments.len(), 10 | 12), "{segments:?}");
+        assert!(compact_path_command_count(&data) <= 14, "{data}");
+    }
+}
+
+#[test]
 fn pixel_u_shape_template_matches_potrace_mask() {
     let bitmap = parity_u_shape_bitmap();
     let traced = trace_bitmap(

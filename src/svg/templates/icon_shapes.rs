@@ -1,6 +1,7 @@
 use super::*;
 
 mod chevron;
+mod chevron_paths;
 mod h_shape;
 mod hooked_l;
 mod l_shape;
