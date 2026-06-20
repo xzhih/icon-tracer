@@ -1,3 +1,4 @@
+use super::hooked_l_paths::*;
 use super::*;
 
 pub(crate) fn fit_closed_hooked_l_potrace_segments(
@@ -6,138 +7,40 @@ pub(crate) fn fit_closed_hooked_l_potrace_segments(
     const MIN_AXIS: f64 = 48.0;
     const MIN_ASPECT_RATIO: f64 = 0.75;
     const MAX_ASPECT_RATIO: f64 = 1.25;
-    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 4.0;
+    const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 1.0;
 
-    fit_closed_template_variants(
-        points,
-        MIN_AXIS,
-        MIN_ASPECT_RATIO,
-        MAX_ASPECT_RATIO,
-        MAX_TEMPLATE_BOUNDARY_ERROR,
-        hooked_l_potrace_segments,
-        &ORTHOGONAL_TEMPLATE_TRANSFORMS,
-    )
-}
+    let bounds = FloatBounds::from_points(points)?;
+    let width = bounds.max_x - bounds.min_x;
+    let height = bounds.max_y - bounds.min_y;
+    if width < MIN_AXIS || height < MIN_AXIS {
+        return None;
+    }
 
-pub(crate) fn hooked_l_potrace_segments(bounds: FloatBounds) -> Vec<SvgPathSegment> {
-    vec![
-        normalized_rect_cubic(
-            bounds,
-            (0.075, 0.012_5),
-            (0.040_714_285_714, 0.026_973_684_211),
-            (0.025_714_285_714, 0.041_447_368_421),
-            (0.010_714_285_714, 0.074_342_105_263),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.010_714_285_714, 0.074_342_105_263),
-            (0.001_428_571_429, 0.094_736_842_105),
-            (0.0, 0.153_289_473_684),
-            (0.0, 0.501_315_789_474),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.0, 0.501_315_789_474),
-            (0.0, 0.878_289_473_684),
-            (0.001_428_571_429, 0.906_578_947_368),
-            (0.013_571_428_571, 0.930_921_052_632),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.013_571_428_571, 0.930_921_052_632),
-            (0.029_285_714_286, 0.962_5),
-            (0.045, 0.976_315_789_474),
-            (0.080_714_285_714, 0.990_131_578_947),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.080_714_285_714, 0.990_131_578_947),
-            (0.102_857_142_857, 0.998_684_210_526),
-            (0.162_142_857_143, 1.0),
-            (0.501_428_571_429, 1.0),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.501_428_571_429, 1.0),
-            (0.869_285_714_286, 1.0),
-            (0.898_571_428_571, 0.998_684_210_526),
-            (0.925, 0.987_5),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.925, 0.987_5),
-            (0.959_285_714_286, 0.973_026_315_789),
-            (0.974_285_714_286, 0.958_552_631_579),
-            (0.989_285_714_286, 0.925_657_894_737),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.989_285_714_286, 0.925_657_894_737),
-            (0.997_857_142_857, 0.905_921_052_632),
-            (1.0, 0.867_763_157_895),
-            (1.0, 0.710_526_315_789),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (1.0, 0.710_526_315_789),
-            (1.0, 0.509_868_421_053),
-            (0.997_142_857_143, 0.490_789_473_684),
-            (0.965_714_285_714, 0.457_894_736_842),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.965_714_285_714, 0.457_894_736_842),
-            (0.92, 0.411_184_210_526),
-            (0.780_714_285_714, 0.407_894_736_842),
-            (0.725_714_285_714, 0.452_631_578_947),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.725_714_285_714, 0.452_631_578_947),
-            (0.694_285_714_286, 0.478_947_368_421),
-            (0.685_714_285_714, 0.510_526_315_789),
-            (0.685_714_285_714, 0.613_157_894_737),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.685_714_285_714, 0.613_157_894_737),
-            (0.685_714_285_714, 0.710_526_315_789),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.685_714_285_714, 0.710_526_315_789),
-            (0.5, 0.710_526_315_789),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.5, 0.710_526_315_789),
-            (0.314_285_714_286, 0.710_526_315_789),
-        ),
-        normalized_rect_line(
-            bounds,
-            (0.314_285_714_286, 0.710_526_315_789),
-            (0.314_285_714_286, 0.402_631_578_947),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.314_285_714_286, 0.402_631_578_947),
-            (0.314_285_714_286, 0.118_421_052_632),
-            (0.312_857_142_857, 0.093_421_052_632),
-            (0.300_714_285_714, 0.069_078_947_368),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.300_714_285_714, 0.069_078_947_368),
-            (0.285, 0.037_5),
-            (0.269_285_714_286, 0.023_684_210_526),
-            (0.233_571_428_571, 0.009_868_421_053),
-        ),
-        normalized_rect_cubic(
-            bounds,
-            (0.233_571_428_571, 0.009_868_421_053),
-            (0.196_428_571_429, -0.003_947_368_421),
-            (0.111_428_571_429, -0.003_289_473_684),
-            (0.075, 0.012_5),
-        ),
-    ]
+    let aspect = width / height;
+    if !(MIN_ASPECT_RATIO..=MAX_ASPECT_RATIO).contains(&aspect) {
+        return None;
+    }
+
+    let path = TracePath {
+        points: points.to_vec(),
+        is_hole: false,
+    };
+    let candidates = [
+        hooked_l_base_potrace_segments(bounds),
+        hooked_l_mx_potrace_segments(bounds),
+        hooked_l_my_potrace_segments(bounds),
+        hooked_l_r90_potrace_segments(bounds),
+        hooked_l_r180_potrace_segments(bounds),
+        hooked_l_r270_potrace_segments(bounds),
+    ];
+
+    candidates
+        .into_iter()
+        .filter_map(|segments| {
+            let candidate = (segments[0].start(), segments.clone());
+            let error = pixel_potrace_candidate_boundary_rms_error(&path, &candidate);
+            (error <= MAX_TEMPLATE_BOUNDARY_ERROR).then_some((error, segments))
+        })
+        .min_by(|(left_error, _), (right_error, _)| left_error.total_cmp(right_error))
+        .map(|(_, segments)| segments)
 }

@@ -554,6 +554,44 @@ fn pixel_hooked_l_shape_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_hooked_l_shape_template_accepts_mirrored_and_rotated_orientations() {
+    for bitmap in [
+        mirror_bitmap_x(&parity_hooked_l_bitmap()),
+        mirror_bitmap_y(&parity_hooked_l_bitmap()),
+        rotate_bitmap_clockwise(&parity_hooked_l_bitmap()),
+        rotate_bitmap_half_turn(&parity_hooked_l_bitmap()),
+        rotate_bitmap_counter_clockwise(&parity_hooked_l_bitmap()),
+    ] {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.2,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let segments = fit_closed_hooked_l_potrace_segments(&path.points)
+            .expect("oriented hooked-L shape should fit a direction-specific Potrace template");
+        let data = path_to_svg_data(
+            path,
+            SvgRenderOptions {
+                curve_mode: CurveMode::Potrace,
+                opt_tolerance: 0.2,
+                pixel_potrace: true,
+            },
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("oriented hooked-L path should render");
+
+        assert!(matches!(segments.len(), 16..=18), "{segments:?}");
+        assert!(compact_path_command_count(&data) <= 18, "{data}");
+    }
+}
+
+#[test]
 fn pixel_diagonal_capsule_primitive_uses_potrace_like_cubics() {
     let bitmap = parity_diagonal_bar_bitmap();
     let traced = trace_bitmap(
