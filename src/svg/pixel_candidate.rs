@@ -125,6 +125,79 @@ pub(crate) fn pixel_potrace_template_candidate_is_better(
         && candidate_boundary_error < best_boundary_error
 }
 
+pub(crate) fn pixel_potrace_compact_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_SLACK_PIXELS: usize = 256;
+    const MAX_MASK_SLACK_RATIO: f64 = 0.004;
+    const MAX_BOUNDARY_ERROR: f64 = 0.9;
+    const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.65;
+    const MAX_RELATIVE_BOUNDARY_ERROR: f64 = 3.25;
+    const MIN_BEST_MASK_ERROR: usize = 32;
+    const MIN_RELATIVE_MASK_ERROR: usize = 4;
+    const MAX_RELATIVE_MASK_ERROR: usize = 6;
+    const EXTRA_RELATIVE_MASK_PIXELS: usize = 8;
+    const MAX_COMPACT_FOREGROUND_DELTA: isize = -120;
+    const MIN_HORIZONTAL_MIRROR_MISMATCH_RATIO: f64 = 0.3;
+    const MAX_RELATIVE_PATH_BYTES: usize = 90;
+    const MIN_SEGMENT_SAVINGS: usize = 4;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if best_error < MIN_BEST_MASK_ERROR
+        || candidate_error < best_error.saturating_mul(MIN_RELATIVE_MASK_ERROR)
+    {
+        return false;
+    }
+
+    let slack = MIN_MASK_SLACK_PIXELS
+        .max((width.saturating_mul(height) as f64 * MAX_MASK_SLACK_RATIO).round() as usize);
+    if candidate_error > best_error.saturating_add(slack)
+        || candidate_error
+            > best_error
+                .saturating_mul(MAX_RELATIVE_MASK_ERROR)
+                .saturating_add(EXTRA_RELATIVE_MASK_PIXELS)
+    {
+        return false;
+    }
+
+    if pixel_potrace_candidate_foreground_delta(path, candidate, width, height)
+        > MAX_COMPACT_FOREGROUND_DELTA
+    {
+        return false;
+    }
+    if pixel_potrace_horizontal_mirror_mismatch_ratio(path, width, height)
+        < MIN_HORIZONTAL_MIRROR_MISMATCH_RATIO
+    {
+        return false;
+    }
+
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    if candidate_boundary_error > MAX_BOUNDARY_ERROR
+        || candidate_boundary_error
+            > (best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR)
+                .max(best_boundary_error * MAX_RELATIVE_BOUNDARY_ERROR)
+    {
+        return false;
+    }
+
+    let candidate_bytes = compact_svg_path_data_from_segments(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments(best.0, &best.1).len();
+    let saves_segments = candidate.1.len().saturating_add(MIN_SEGMENT_SAVINGS) <= best.1.len();
+    let saves_bytes =
+        candidate_bytes.saturating_mul(100) <= best_bytes.saturating_mul(MAX_RELATIVE_PATH_BYTES);
+
+    saves_segments && saves_bytes
+}
+
 pub(crate) fn pixel_potrace_candidate_mask_error(
     path: &TracePath,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
@@ -152,6 +225,57 @@ pub(crate) fn pixel_potrace_candidate_mask_error(
         .zip(candidate_pixels.iter())
         .filter(|(left, right)| left != right)
         .count()
+}
+
+pub(crate) fn pixel_potrace_candidate_foreground_delta(
+    path: &TracePath,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    width: usize,
+    height: usize,
+) -> isize {
+    let mut reference = vec![false; width.saturating_mul(height)];
+    let mut candidate_pixels = vec![false; width.saturating_mul(height)];
+    rasterize_path_evenodd(path, width, height, &mut reference);
+
+    let candidate_path = TracePath {
+        is_hole: path.is_hole,
+        points: flattened_potrace_segments(candidate.0, &candidate.1),
+    };
+    rasterize_path_evenodd_coverage_threshold(
+        &candidate_path,
+        width,
+        height,
+        CANDIDATE_MASK_SUPERSAMPLE,
+        &mut candidate_pixels,
+    );
+
+    let reference_foreground = reference.iter().filter(|pixel| **pixel).count();
+    let candidate_foreground = candidate_pixels.iter().filter(|pixel| **pixel).count();
+    candidate_foreground as isize - reference_foreground as isize
+}
+
+pub(crate) fn pixel_potrace_horizontal_mirror_mismatch_ratio(
+    path: &TracePath,
+    width: usize,
+    height: usize,
+) -> f64 {
+    let mut reference = vec![false; width.saturating_mul(height)];
+    rasterize_path_evenodd(path, width, height, &mut reference);
+    let foreground = reference.iter().filter(|pixel| **pixel).count();
+    if foreground == 0 {
+        return f64::INFINITY;
+    }
+
+    let mut mismatches = 0usize;
+    for y in 0..height {
+        for x in 0..width {
+            if reference[y * width + x] != reference[y * width + (width - 1 - x)] {
+                mismatches += 1;
+            }
+        }
+    }
+
+    mismatches as f64 / foreground as f64
 }
 
 pub(crate) const CANDIDATE_MASK_SUPERSAMPLE: usize = 4;

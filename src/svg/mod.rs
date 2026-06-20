@@ -325,6 +325,7 @@ pub(crate) fn choose_pixel_potrace_point_set(
         has_holes,
     )?;
     let simplified = simplify_collinear_float_points(&path.points);
+    let protected_template = pixel_potrace_points_match_protected_template(&path.points);
 
     if simplified.len() >= 3 && simplified.len() < path.points.len() {
         if let Some(capsule) = fit_closed_capsule_potrace_segments(&simplified) {
@@ -348,7 +349,15 @@ pub(crate) fn choose_pixel_potrace_point_set(
             canvas_size,
             has_holes,
         ) {
-            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                && (protected_template
+                    || !pixel_potrace_compact_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &best,
+                        &candidate,
+                    ))
+            {
                 best = candidate;
             }
         }
@@ -434,6 +443,11 @@ pub(crate) fn simplify_collinear_float_points(points: &[(f64, f64)]) -> Vec<(f64
     simplified
 }
 
+pub(crate) fn pixel_potrace_points_match_protected_template(points: &[(f64, f64)]) -> bool {
+    fit_closed_t_potrace_segments(points).is_some()
+        || fit_closed_h_potrace_segments(points).is_some()
+}
+
 pub(crate) fn choose_pixel_potrace_segments(
     path: &TracePath,
     start: (f64, f64),
@@ -448,10 +462,12 @@ pub(crate) fn choose_pixel_potrace_segments(
         opt_tolerance,
         PIXEL_POTRACE_LINEAR_DEVIATION,
     );
+    let strict_candidate = best.clone();
 
     if path.points.len() >= 12 {
         let mut preserve_primitive = false;
         let mut allow_fitted_override = false;
+        let protected_template = pixel_potrace_points_match_protected_template(&path.points);
 
         if has_holes {
             if let Some(ring_ellipse) =
@@ -801,6 +817,18 @@ pub(crate) fn choose_pixel_potrace_segments(
                     best = candidate;
                 }
             }
+        }
+
+        if !protected_template
+            && (!preserve_primitive || allow_fitted_override)
+            && pixel_potrace_compact_candidate_is_better(
+                path,
+                canvas_size,
+                &strict_candidate,
+                &best,
+            )
+        {
+            best = strict_candidate;
         }
     }
 
