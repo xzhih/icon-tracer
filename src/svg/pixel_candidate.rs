@@ -101,6 +101,89 @@ pub(crate) fn pixel_potrace_rounded_rect_candidate_is_better(
         && candidate_boundary_error < best_boundary_error
 }
 
+pub(crate) fn pixel_potrace_diagonal_capsule_compact_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    primitive: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 6;
+    const MAX_EXTRA_SEGMENTS: usize = 24;
+    const MAX_RELATIVE_PATH_BYTES_PERCENT: usize = 205;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if candidate.1.len() > primitive.1.len().saturating_add(MAX_EXTRA_SEGMENTS) {
+        return false;
+    }
+
+    let rendered_candidate = quantize_potrace_candidate_to_tenth(candidate);
+    let rendered_primitive = quantize_potrace_candidate_to_tenth(primitive);
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments(rendered_candidate.0, &rendered_candidate.1).len();
+    let primitive_bytes =
+        compact_svg_path_data_from_segments(rendered_primitive.0, &rendered_primitive.1).len();
+    if candidate_bytes.saturating_mul(100)
+        > primitive_bytes.saturating_mul(MAX_RELATIVE_PATH_BYTES_PERCENT)
+    {
+        return false;
+    }
+
+    let candidate_error =
+        pixel_potrace_candidate_mask_error(path, &rendered_candidate, width, height);
+    let primitive_error =
+        pixel_potrace_candidate_mask_error(path, &rendered_primitive, width, height);
+    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > primitive_error {
+        return false;
+    }
+
+    let candidate_boundary_error =
+        pixel_potrace_candidate_boundary_rms_error(path, &rendered_candidate);
+    let primitive_boundary_error =
+        pixel_potrace_candidate_boundary_rms_error(path, &rendered_primitive);
+    pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, primitive_boundary_error)
+}
+
+fn quantize_potrace_candidate_to_tenth(
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+) -> ((f64, f64), Vec<SvgPathSegment>) {
+    (
+        quantize_point_to_tenth(candidate.0),
+        candidate
+            .1
+            .iter()
+            .copied()
+            .map(quantize_segment_to_tenth)
+            .collect(),
+    )
+}
+
+fn quantize_segment_to_tenth(segment: SvgPathSegment) -> SvgPathSegment {
+    match segment {
+        SvgPathSegment::Line { start, end } => SvgPathSegment::Line {
+            start: quantize_point_to_tenth(start),
+            end: quantize_point_to_tenth(end),
+        },
+        SvgPathSegment::Cubic(cubic) => SvgPathSegment::Cubic(CubicSegment {
+            start: quantize_point_to_tenth(cubic.start),
+            control1: quantize_point_to_tenth(cubic.control1),
+            control2: quantize_point_to_tenth(cubic.control2),
+            end: quantize_point_to_tenth(cubic.end),
+        }),
+    }
+}
+
+fn quantize_point_to_tenth(point: (f64, f64)) -> (f64, f64) {
+    (quantize_to_tenth(point.0), quantize_to_tenth(point.1))
+}
+
+fn quantize_to_tenth(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
 pub(crate) fn pixel_potrace_template_candidate_is_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

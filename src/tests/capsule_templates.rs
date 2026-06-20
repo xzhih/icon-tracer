@@ -358,6 +358,104 @@ fn pixel_relaxed_point_set_can_replace_complex_candidate_when_closer() {
     );
 }
 
+#[test]
+fn pixel_diagonal_capsule_can_use_compact_candidate_when_substantially_closer() {
+    let bitmap = capsule_bitmap((42.0, 188.0), (204.0, 92.0), 24.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a candidate");
+    let compact_candidate = strict_pixel_candidate_with_tolerance(path, 0.0);
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let primitive_candidate = (primitive[0].start(), primitive);
+
+    assert!(diagonal_capsule_allows_compact_replacement(&path.points));
+    assert!(pixel_potrace_diagonal_capsule_compact_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &compact_candidate,
+        &primitive_candidate
+    ));
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(
+                path,
+                &primitive_candidate,
+                bitmap.width(),
+                bitmap.height()
+            )
+    );
+}
+
+#[test]
+fn pixel_diagonal_capsule_blocks_small_low_angle_compact_replacement() {
+    let bitmap = capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+
+    assert!(!diagonal_capsule_allows_compact_replacement(&path.points));
+}
+
+#[test]
+fn pixel_diagonal_capsule_rejects_compact_candidate_when_too_expensive() {
+    let bitmap = capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let compact_candidate = strict_pixel_candidate_with_tolerance(path, 0.0);
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let primitive_candidate = (primitive[0].start(), primitive);
+
+    assert!(!pixel_potrace_diagonal_capsule_compact_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &compact_candidate,
+        &primitive_candidate
+    ));
+}
+
+fn capsule_bitmap(start: (f64, f64), end: (f64, f64), half_width: f64) -> Bitmap {
+    const CANVAS: usize = 256;
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS).map(move |x| {
+                distance_squared_to_segment((x as f64 + 0.5, y as f64 + 0.5), start, end)
+                    .0
+                    .sqrt()
+                    <= half_width
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 fn compact_path_command_count(data: &str) -> usize {
     data.chars()
         .filter(|character| {

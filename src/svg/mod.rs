@@ -600,7 +600,17 @@ pub(crate) fn choose_pixel_potrace_segments(
             {
                 if let Some(first) = diagonal_capsule.first() {
                     let candidate = (first.start(), diagonal_capsule);
-                    if pixel_potrace_primitive_candidate_is_close_enough(
+                    if diagonal_capsule_allows_compact_replacement(&path.points)
+                        && pixel_potrace_diagonal_capsule_compact_candidate_is_better(
+                            path,
+                            canvas_size,
+                            &compact_strict_candidate,
+                            &candidate,
+                        )
+                    {
+                        best = compact_strict_candidate.clone();
+                        preserve_primitive = true;
+                    } else if pixel_potrace_primitive_candidate_is_close_enough(
                         path,
                         canvas_size,
                         &candidate,
