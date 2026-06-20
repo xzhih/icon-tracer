@@ -3,6 +3,7 @@ use super::*;
 mod chevron;
 mod chevron_paths;
 mod h_shape;
+mod h_shape_paths;
 mod hooked_l;
 mod l_shape;
 mod l_shape_paths;
