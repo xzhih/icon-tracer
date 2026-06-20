@@ -242,6 +242,45 @@ fn regularize_potrace_orthogonal_corner_merges_straight_lead_in() {
 }
 
 #[test]
+fn regularize_potrace_orthogonal_corner_handles_closed_start_boundary() {
+    let segments = vec![
+        SvgPathSegment::Cubic(CubicSegment {
+            start: (100.0, 0.0),
+            control1: (104.0, 0.2),
+            control2: (109.8, 5.5),
+            end: (110.0, 10.0),
+        }),
+        SvgPathSegment::Cubic(test_cubic((110.0, 10.0), (110.0, 90.0))),
+        SvgPathSegment::Cubic(test_cubic((110.0, 90.0), (20.0, 90.0))),
+        SvgPathSegment::Cubic(test_cubic((20.0, 90.0), (20.0, 0.0))),
+        SvgPathSegment::Cubic(test_cubic((20.0, 0.0), (100.0, 0.0))),
+    ];
+
+    let regularized = regularize_potrace_orthogonal_corners(segments);
+    let corner = regularized
+        .iter()
+        .find_map(|segment| match *segment {
+            SvgPathSegment::Cubic(cubic)
+                if cubic.start == (100.0, 0.0) && cubic.end == (110.0, 10.0) =>
+            {
+                Some(cubic)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("wrapped corner should remain cubic: {regularized:?}"));
+
+    assert_eq!(regularized.len(), 5);
+    assert!(
+        (corner.control1.1 - corner.start.1).abs() <= 1.0e-6,
+        "{corner:?}"
+    );
+    assert!(
+        (corner.control2.0 - corner.end.0).abs() <= 1.0e-6,
+        "{corner:?}"
+    );
+}
+
+#[test]
 fn regularize_potrace_orthogonal_corner_rejects_beveled_turn() {
     let bevel = test_cubic((100.0, 0.0), (110.0, 10.0));
     let segments = vec![

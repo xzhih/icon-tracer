@@ -393,7 +393,16 @@ pub(crate) fn choose_pixel_potrace_point_set(
             canvas_size,
             has_holes,
         ) {
-            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+            let should_replace =
+                pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                    || (best.1.len() >= MIN_RELAXED_SMOOTHING_SACRIFICE_SEGMENTS
+                        && pixel_potrace_relaxed_point_set_candidate_is_better(
+                            path,
+                            canvas_size,
+                            &candidate,
+                            &best,
+                        ));
+            if should_replace {
                 best = candidate;
             }
         }
@@ -440,6 +449,7 @@ fn compact_strict_pixel_potrace_segments_for_points(
 const PIXEL_POTRACE_COMPACT_TOLERANCE: f64 = 0.0;
 const PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE: f64 = 1.0;
 const MIN_RELAXED_POINT_SET_SEGMENTS: usize = 24;
+const MIN_RELAXED_SMOOTHING_SACRIFICE_SEGMENTS: usize = 36;
 
 fn select_compact_strict_potrace_candidate(
     path: &TracePath,

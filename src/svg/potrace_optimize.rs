@@ -368,19 +368,30 @@ pub(crate) fn regularize_potrace_orthogonal_corners(
         return segments;
     }
 
+    let (regularized, changed) = regularize_potrace_orthogonal_corners_linear(&segments);
+    if changed {
+        return regularized;
+    }
+
+    regularize_wrapped_potrace_orthogonal_corner(&segments).unwrap_or(segments)
+}
+
+fn regularize_potrace_orthogonal_corners_linear(
+    segments: &[SvgPathSegment],
+) -> (Vec<SvgPathSegment>, bool) {
     let mut regularized = Vec::with_capacity(segments.len());
     let mut index = 0usize;
     let mut changed = false;
 
     while index < segments.len() {
-        if let Some(cubic) = regularized_potrace_corner_pair(&segments, index) {
+        if let Some(cubic) = regularized_potrace_corner_pair(segments, index) {
             regularized.push(SvgPathSegment::Cubic(cubic));
             changed = true;
             index += 2;
             continue;
         }
 
-        if let Some(cubic) = regularized_potrace_corner(&segments, index) {
+        if let Some(cubic) = regularized_potrace_corner(segments, index) {
             regularized.push(SvgPathSegment::Cubic(cubic));
             changed = true;
             index += 1;
@@ -392,10 +403,32 @@ pub(crate) fn regularize_potrace_orthogonal_corners(
     }
 
     if changed && regularized.len() >= 3 {
-        regularized
+        (regularized, true)
     } else {
-        segments
+        (segments.to_vec(), false)
     }
+}
+
+fn regularize_wrapped_potrace_orthogonal_corner(
+    segments: &[SvgPathSegment],
+) -> Option<Vec<SvgPathSegment>> {
+    if !compact_segments_are_closed(segments[0].start(), segments)
+        || !segments
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+    {
+        return None;
+    }
+
+    for offset in 1..segments.len() {
+        let rotated = rotate_segments_at(segments, offset);
+        let (regularized, changed) = regularize_potrace_orthogonal_corners_linear(&rotated);
+        if changed {
+            return Some(regularized);
+        }
+    }
+
+    None
 }
 
 pub(crate) fn regularized_potrace_corner_pair(
