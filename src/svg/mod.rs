@@ -365,7 +365,40 @@ pub(crate) fn pixel_potrace_segments_for_points(
     has_holes: bool,
 ) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
     let polygon = optimal_potrace_polygon_indices(points);
+    pixel_potrace_segments_for_polygon_indices(
+        reference_path,
+        points,
+        &polygon,
+        opt_tolerance,
+        canvas_size,
+        has_holes,
+    )
+}
+
+pub(crate) fn relaxed_pixel_potrace_segments_for_points(
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = relaxed_optimal_potrace_polygon_indices(points);
     let vertices = adjust_potrace_vertices(points, &polygon, 0.5);
+    let (start, segments) = smooth_potrace_vertices(&vertices)?;
+    Some(optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    ))
+}
+
+pub(crate) fn pixel_potrace_segments_for_polygon_indices(
+    reference_path: &TracePath,
+    points: &[(f64, f64)],
+    polygon: &[usize],
+    opt_tolerance: f64,
+    canvas_size: Option<(usize, usize)>,
+    has_holes: bool,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let vertices = adjust_potrace_vertices(points, polygon, 0.5);
     let (start, segments) = smooth_potrace_vertices(&vertices)?;
 
     Some(choose_pixel_potrace_segments(
@@ -697,6 +730,16 @@ pub(crate) fn choose_pixel_potrace_segments(
                         best = candidate;
                         preserve_primitive = true;
                     }
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(candidate) =
+                relaxed_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+            {
+                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                    best = candidate;
                 }
             }
         }

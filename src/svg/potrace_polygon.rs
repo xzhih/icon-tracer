@@ -1,8 +1,25 @@
 use super::*;
 
+const STRICT_POLYGON_MAX_DISTANCE: f64 = 1.0;
+const RELAXED_POLYGON_MAX_DISTANCE: f64 = 2.0;
+
 pub(crate) fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
+    optimal_potrace_polygon_indices_with_max_distance(points, STRICT_POLYGON_MAX_DISTANCE)
+}
+
+pub(crate) fn relaxed_optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usize> {
+    optimal_potrace_polygon_indices_with_max_distance(points, RELAXED_POLYGON_MAX_DISTANCE)
+}
+
+pub(crate) fn optimal_potrace_polygon_indices_with_max_distance(
+    points: &[(f64, f64)],
+    max_distance: f64,
+) -> Vec<usize> {
     if points.len() > 3 && distance_squared_float(points[0], points[points.len() - 1]) <= 1.0e-12 {
-        return optimal_potrace_polygon_indices(&points[..points.len() - 1]);
+        return optimal_potrace_polygon_indices_with_max_distance(
+            &points[..points.len() - 1],
+            max_distance,
+        );
     }
 
     if points.len() <= 8 {
@@ -16,7 +33,9 @@ pub(crate) fn optimal_potrace_polygon_indices(points: &[(f64, f64)]) -> Vec<usiz
     let mut best: Option<PolygonCandidate> = None;
     for rotation in polygon_rotation_candidates(points) {
         let rotated = rotate_float_points(points, rotation);
-        let Some(candidate) = best_polygon_for_rotated_points(&rotated) else {
+        let Some(candidate) =
+            best_polygon_for_rotated_points_with_max_distance(&rotated, max_distance)
+        else {
             continue;
         };
         let indices = candidate
@@ -226,7 +245,10 @@ pub(crate) fn rotate_float_points(points: &[(f64, f64)], start_index: usize) -> 
         .collect()
 }
 
-pub(crate) fn best_polygon_for_rotated_points(points: &[(f64, f64)]) -> Option<PolygonCandidate> {
+pub(crate) fn best_polygon_for_rotated_points_with_max_distance(
+    points: &[(f64, f64)],
+    max_distance: f64,
+) -> Option<PolygonCandidate> {
     let n = points.len();
     let sums = PathSums::for_closed_points(points);
     let mut dp: Vec<Option<PolygonDpState>> = vec![None; n + 1];
@@ -247,7 +269,7 @@ pub(crate) fn best_polygon_for_rotated_points(points: &[(f64, f64)]) -> Option<P
                 break;
             }
 
-            if !potrace_possible_segment_is_straight(points, start, end) {
+            if !potrace_possible_segment_is_straight(points, start, end, max_distance) {
                 if end == start + 1 {
                     end += 1;
                     continue;
@@ -372,6 +394,7 @@ pub(crate) fn potrace_possible_segment_is_straight(
     points: &[(f64, f64)],
     start: usize,
     end: usize,
+    max_distance: f64,
 ) -> bool {
     if end <= start + 1 {
         return true;
@@ -381,12 +404,15 @@ pub(crate) fn potrace_possible_segment_is_straight(
         return false;
     }
 
-    potrace_subpath_is_straight(points, start as isize - 1, end as isize + 1)
+    potrace_subpath_is_straight(points, start as isize - 1, end as isize + 1, max_distance)
 }
 
-pub(crate) fn potrace_subpath_is_straight(points: &[(f64, f64)], start: isize, end: isize) -> bool {
-    const MAX_DISTANCE: f64 = 1.0;
-
+pub(crate) fn potrace_subpath_is_straight(
+    points: &[(f64, f64)],
+    start: isize,
+    end: isize,
+    max_distance: f64,
+) -> bool {
     if end <= start + 2 {
         return true;
     }
@@ -403,7 +429,7 @@ pub(crate) fn potrace_subpath_is_straight(points: &[(f64, f64)], start: isize, e
 
     for index in (start + 1)..end {
         let point = cyclic_point(points, index);
-        if max_distance_to_infinite_line(point, start_point, end_point) > MAX_DISTANCE {
+        if max_distance_to_infinite_line(point, start_point, end_point) > max_distance {
             return false;
         }
     }

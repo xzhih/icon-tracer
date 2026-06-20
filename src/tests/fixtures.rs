@@ -443,6 +443,30 @@ pub(super) fn offset_u_shape_bitmap() -> Bitmap {
     ])
 }
 
+pub(super) fn sharp_v_polygon_bitmap() -> Bitmap {
+    polygon_bitmap(&[
+        (58.0, 60.0),
+        (96.0, 60.0),
+        (128.0, 150.0),
+        (160.0, 60.0),
+        (198.0, 60.0),
+        (146.0, 204.0),
+        (110.0, 204.0),
+    ])
+}
+
+fn polygon_bitmap(points: &[(f64, f64)]) -> Bitmap {
+    const CANVAS: usize = 256;
+    let pixels = (0..CANVAS)
+        .flat_map(|y| {
+            (0..CANVAS)
+                .map(move |x| point_is_inside_polygon((x as f64 + 0.5, y as f64 + 0.5), points))
+        })
+        .collect::<Vec<_>>();
+
+    Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
 fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)
@@ -459,6 +483,25 @@ fn rounded_rect_union_bitmap(rects: &[(f64, f64, f64, f64, f64)]) -> Bitmap {
         .collect::<Vec<_>>();
 
     Bitmap::from_rows(CANVAS, CANVAS, &pixels).expect("fixture pixels should match canvas")
+}
+
+fn point_is_inside_polygon(point: (f64, f64), points: &[(f64, f64)]) -> bool {
+    let mut hit = false;
+    let mut previous = points.len() - 1;
+
+    for index in 0..points.len() {
+        let (x1, y1) = points[index];
+        let (x0, y0) = points[previous];
+        if (y1 > point.1) != (y0 > point.1) {
+            let crossing = (x0 - x1) * (point.1 - y1) / (y0 - y1) + x1;
+            if point.0 < crossing {
+                hit = !hit;
+            }
+        }
+        previous = index;
+    }
+
+    hit
 }
 
 fn point_is_inside_triangle(
