@@ -258,7 +258,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 1.0,
             )
         {
-            if pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
+            if pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
                 path,
                 canvas_size,
                 &candidate,

@@ -593,13 +593,14 @@ pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
         && candidate_delta <= best_delta.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_FOREGROUND_DELTA)
 }
 
-pub(crate) fn pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
+pub(crate) fn pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
     const MIN_MASK_IMPROVEMENT_PIXELS: usize = 8;
+    const MIN_DETAILED_MASK_IMPROVEMENT_PIXELS: usize = 2;
     const MAX_EXTRA_D_BYTES: usize = 24;
     const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.03;
     const MAX_EXTRA_FOREGROUND_DELTA: usize = 8;
@@ -608,7 +609,9 @@ pub(crate) fn pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
         return false;
     };
 
-    if !pixel_potrace_points_are_thin_detailed_annular_sector(&path.points, width, height) {
+    let thin = pixel_potrace_points_are_thin_detailed_annular_sector(&path.points, width, height);
+    if !thin && !pixel_potrace_points_match_moderate_gap_annular_sector(&path.points, width, height)
+    {
         return false;
     }
 
@@ -625,7 +628,12 @@ pub(crate) fn pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
 
     let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
     let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
+    let min_mask_improvement = if thin {
+        MIN_MASK_IMPROVEMENT_PIXELS
+    } else {
+        MIN_DETAILED_MASK_IMPROVEMENT_PIXELS
+    };
+    if candidate_error.saturating_add(min_mask_improvement) > best_error {
         return false;
     }
 
@@ -640,6 +648,27 @@ pub(crate) fn pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
     candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
+}
+
+fn pixel_potrace_points_match_moderate_gap_annular_sector(
+    points: &[(f64, f64)],
+    width: usize,
+    height: usize,
+) -> bool {
+    const MIN_GAP_DEGREES: f64 = 120.0;
+    const MAX_GAP_DEGREES: f64 = 150.0;
+
+    if !pixel_potrace_points_are_detailed_annular_sector(points, width, height) {
+        return false;
+    }
+
+    let center = (width as f64 / 2.0, height as f64 / 2.0);
+    let Some((_, _, gap_radians)) = annular_sector_angles(points, center) else {
+        return false;
+    };
+    let gap_degrees = gap_radians.to_degrees();
+
+    (MIN_GAP_DEGREES..=MAX_GAP_DEGREES).contains(&gap_degrees)
 }
 
 #[derive(Debug, Clone, Copy)]

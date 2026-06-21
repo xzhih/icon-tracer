@@ -227,6 +227,13 @@ fn pixel_ring_sector_can_accept_compact_annular_detail_rescue() {
     let compact_annular = (annular[0].start(), annular);
     let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce best-area candidate");
+    let loose_vertex =
+        bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
+            &path.points,
+            0.2,
+            1.0,
+        )
+        .expect("fixture should produce loose-vertex candidate");
 
     assert!(pixel_potrace_ring_sector_detailed_candidate_is_better(
         path,
@@ -234,13 +241,19 @@ fn pixel_ring_sector_can_accept_compact_annular_detail_rescue() {
         &best_area,
         &compact_annular,
     ));
+    assert!(pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
+        path,
+        Some((bitmap.width(), bitmap.height())),
+        &loose_vertex,
+        &best_area,
+    ));
 
     let selected =
         choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
             .expect("fixture should produce selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+        compact_svg_path_data_from_segments_without_arcs(loose_vertex.0, &loose_vertex.1)
     );
 }
 
@@ -340,14 +353,51 @@ fn pixel_thin_ring_sector_can_accept_loose_vertex_rescue() {
         )
         .expect("fixture should produce loose-vertex candidate");
 
-    assert!(
-        pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
-            path,
-            canvas_size,
-            &loose_vertex,
-            &best_area,
-        )
+    assert!(pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
+        path,
+        canvas_size,
+        &loose_vertex,
+        &best_area,
+    ));
+
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce selected candidate");
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(loose_vertex.0, &loose_vertex.1)
     );
+}
+
+#[test]
+fn pixel_moderate_gap_ring_sector_can_accept_loose_vertex_rescue() {
+    let bitmap = ring_sector_bitmap(70.0, 290.0, 38.0, 80.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce best-area candidate");
+    let loose_vertex =
+        bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
+            &path.points,
+            0.2,
+            1.0,
+        )
+        .expect("fixture should produce loose-vertex candidate");
+
+    assert!(pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
+        path,
+        canvas_size,
+        &loose_vertex,
+        &best_area,
+    ));
 
     let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
         .expect("fixture should produce selected candidate");
@@ -360,7 +410,6 @@ fn pixel_thin_ring_sector_can_accept_loose_vertex_rescue() {
 #[test]
 fn pixel_ring_sector_rejects_loose_vertex_canaries() {
     let fixtures = [
-        ring_sector_bitmap(70.0, 290.0, 38.0, 80.0),
         ring_sector_bitmap(210.0, 140.0, 36.0, 76.0),
         ring_sector_bitmap(350.0, 190.0, 44.0, 82.0),
     ];
@@ -387,13 +436,11 @@ fn pixel_ring_sector_rejects_loose_vertex_canaries() {
             )
             .expect("fixture should produce loose-vertex candidate");
 
-        assert!(
-            !pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
-                path,
-                canvas_size,
-                &loose_vertex,
-                &selected,
-            )
-        );
+        assert!(!pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
+            path,
+            canvas_size,
+            &loose_vertex,
+            &selected,
+        ));
     }
 }
