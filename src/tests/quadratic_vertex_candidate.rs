@@ -58,7 +58,7 @@ fn quadratic_vertex_candidate_accepts_low_angle_capsule_rescue() {
 }
 
 #[test]
-fn quadratic_vertex_candidate_accepts_medium_angle_capsule_rescue() {
+fn quadratic_vertex_candidate_defers_to_medium_angle_capsule_template() {
     let bitmap = local_capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0);
     let path = trace_first_path(&bitmap);
     let canvas_size = Some((bitmap.width(), bitmap.height()));
@@ -66,20 +66,32 @@ fn quadratic_vertex_candidate_accepts_medium_angle_capsule_rescue() {
         .expect("fixture should produce base candidate");
     let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce quadratic candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a medium-angle diagonal capsule template");
+    let primitive_candidate = (primitive[0].start(), primitive);
 
-    assert!(pixel_potrace_quadratic_vertex_candidate_is_better(
+    assert_eq!(primitive_candidate.1.len(), 6);
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(best.0, &best.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert!(!pixel_potrace_quadratic_vertex_candidate_is_better(
         &path,
         canvas_size,
         &quadratic,
         &best,
     ));
     assert!(
-        pixel_potrace_candidate_mask_error(&path, &quadratic, bitmap.width(), bitmap.height())
-            < pixel_potrace_candidate_mask_error(&path, &best, bitmap.width(), bitmap.height())
-    );
-    assert!(
-        pixel_potrace_candidate_boundary_rms_error(&path, &quadratic)
-            < pixel_potrace_candidate_boundary_rms_error(&path, &best)
+        pixel_potrace_candidate_mask_error(&path, &best, bitmap.width(), bitmap.height())
+            <= pixel_potrace_candidate_mask_error(
+                &path,
+                &quadratic,
+                bitmap.width(),
+                bitmap.height()
+            )
     );
 }
 
