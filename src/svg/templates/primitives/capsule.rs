@@ -2,9 +2,11 @@ use crate::svg::*;
 
 use super::capsule_templates::{
     gentle_angle_diagonal_capsule_segments, gentle_angle_diagonal_capsule_template_is_preferred,
-    low_angle_diagonal_capsule_segments, low_angle_diagonal_capsule_template_is_preferred,
-    medium_angle_diagonal_capsule_segments, medium_angle_diagonal_capsule_template_is_preferred,
-    shallow_angle_diagonal_capsule_segments, shallow_angle_diagonal_capsule_template_is_preferred,
+    long_shallow_angle_diagonal_capsule_segments,
+    long_shallow_angle_diagonal_capsule_template_is_preferred, low_angle_diagonal_capsule_segments,
+    low_angle_diagonal_capsule_template_is_preferred, medium_angle_diagonal_capsule_segments,
+    medium_angle_diagonal_capsule_template_is_preferred, shallow_angle_diagonal_capsule_segments,
+    shallow_angle_diagonal_capsule_template_is_preferred,
 };
 use super::{normalized_rect_cubic, normalized_rect_line};
 
@@ -101,7 +103,7 @@ pub(crate) fn fit_closed_diagonal_capsule_potrace_segments(
 ) -> Option<Vec<SvgPathSegment>> {
     const MIN_RADIUS: f64 = 8.0;
     const MIN_ASPECT_RATIO: f64 = 2.0;
-    const AXIS_EPSILON: f64 = 0.08;
+    const AXIS_EPSILON: f64 = 0.06;
 
     let origin = arc_centroid(points);
     let pca_axis = principal_axis_for_points(points, origin)?;
@@ -453,6 +455,10 @@ pub(crate) fn diagonal_capsule_segments(
     half_length: f64,
     radius: f64,
 ) -> Vec<SvgPathSegment> {
+    if long_shallow_angle_diagonal_capsule_template_is_preferred(axis, half_length, radius) {
+        return long_shallow_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
+    }
+
     if shallow_angle_diagonal_capsule_template_is_preferred(axis, radius) {
         return shallow_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
     }

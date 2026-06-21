@@ -717,7 +717,7 @@ fn bestpolygon_area_alpha_gate_rejects_wide_h_regression() {
 }
 
 #[test]
-fn bestpolygon_area_alpha_smoothing_gate_accepts_capsule_rescue() {
+fn bestpolygon_area_alpha_smoothing_gate_defers_to_capsule_primitive() {
     const CANVAS: usize = 256;
     let start = (34.0, 128.0);
     let end = (222.0, 116.0);
@@ -747,16 +747,29 @@ fn bestpolygon_area_alpha_smoothing_gate_accepts_capsule_rescue() {
         .expect("fixture should produce a bestpolygon candidate");
     let area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce a bestpolygon area-alpha candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let primitive_candidate = (primitive[0].start(), primitive);
 
     let selected =
         choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
             .expect("fixture should produce a selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert_ne!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
         compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
     );
     assert!(
         pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
             < pixel_potrace_candidate_mask_error(path, &best, bitmap.width(), bitmap.height())
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 245
     );
 }
