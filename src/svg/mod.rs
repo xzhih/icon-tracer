@@ -504,6 +504,21 @@ pub(crate) fn bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vert
     ))
 }
 
+pub(crate) fn quadratic_vertex_pixel_potrace_segments_for_points(
+    points: &[(f64, f64)],
+    opt_tolerance: f64,
+) -> Option<((f64, f64), Vec<SvgPathSegment>)> {
+    let polygon = optimal_potrace_polygon_indices(points);
+    let vertices = adjust_potrace_vertices_quadratic(points, &polygon, 0.5);
+    let (start, segments) = smooth_potrace_vertices(&vertices)?;
+    Some(optimize_potrace_segments(
+        start,
+        &segments,
+        opt_tolerance,
+        PIXEL_POTRACE_LINEAR_DEVIATION,
+    ))
+}
+
 pub(crate) fn pixel_potrace_segments_for_polygon_indices(
     reference_path: &TracePath,
     points: &[(f64, f64)],

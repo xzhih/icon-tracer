@@ -407,6 +407,68 @@ pub(crate) fn pixel_potrace_loose_candidate_is_better(
     pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, best_boundary_error)
 }
 
+pub(crate) fn pixel_potrace_quadratic_vertex_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_SEGMENT_GROWTH: usize = 4;
+    const MAX_SEGMENT_GROWTH: usize = 8;
+    const MAX_EXTRA_D_BYTES: usize = 96;
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
+    const MAX_EXTRA_BOUNDARY_FOR_MASK_RESCUE: f64 = 0.02;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if pixel_potrace_points_are_detailed_annular_sector(&path.points, width, height) {
+        return false;
+    }
+
+    if !pixel_potrace_points_match_quadratic_vertex_capsule_rescue(&path.points) {
+        return false;
+    }
+
+    let segment_growth = candidate.1.len().saturating_sub(best.1.len());
+    if !(MIN_SEGMENT_GROWTH..=MAX_SEGMENT_GROWTH).contains(&segment_growth) {
+        return false;
+    }
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+
+    candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && candidate_boundary_error <= best_boundary_error + MAX_EXTRA_BOUNDARY_FOR_MASK_RESCUE
+}
+
+fn pixel_potrace_points_match_quadratic_vertex_capsule_rescue(points: &[(f64, f64)]) -> bool {
+    const MIN_AXIS_ANGLE_DEGREES: f64 = 25.0;
+    const MAX_AXIS_ANGLE_DEGREES: f64 = 36.0;
+
+    if fit_closed_diagonal_capsule_potrace_segments(points).is_none() {
+        return false;
+    }
+
+    let origin = arc_centroid(points);
+    let Some(axis) = principal_axis_for_points(points, origin) else {
+        return false;
+    };
+    let angle = axis.1.abs().atan2(axis.0.abs()).to_degrees();
+
+    (MIN_AXIS_ANGLE_DEGREES..=MAX_AXIS_ANGLE_DEGREES).contains(&angle)
+}
+
 pub(crate) fn pixel_potrace_best_area_candidate_is_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

@@ -225,6 +225,21 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
 
     if !protected_template {
         if let Some(candidate) =
+            quadratic_vertex_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+        {
+            if pixel_potrace_quadratic_vertex_candidate_is_better(
+                path,
+                canvas_size,
+                &candidate,
+                &best,
+            ) {
+                best = candidate;
+            }
+        }
+    }
+
+    if !protected_template {
+        if let Some(candidate) =
             bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
         {
             if pixel_potrace_ring_sector_detailed_candidate_is_better(
