@@ -58,6 +58,32 @@ fn quadratic_vertex_candidate_accepts_low_angle_capsule_rescue() {
 }
 
 #[test]
+fn quadratic_vertex_candidate_accepts_medium_angle_capsule_rescue() {
+    let bitmap = local_capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0);
+    let path = trace_first_path(&bitmap);
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let best = pixel_potrace_segments_for_points(&path, &path.points, 0.2, canvas_size, false)
+        .expect("fixture should produce base candidate");
+    let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce quadratic candidate");
+
+    assert!(pixel_potrace_quadratic_vertex_candidate_is_better(
+        &path,
+        canvas_size,
+        &quadratic,
+        &best,
+    ));
+    assert!(
+        pixel_potrace_candidate_mask_error(&path, &quadratic, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(&path, &best, bitmap.width(), bitmap.height())
+    );
+    assert!(
+        pixel_potrace_candidate_boundary_rms_error(&path, &quadratic)
+            < pixel_potrace_candidate_boundary_rms_error(&path, &best)
+    );
+}
+
+#[test]
 fn quadratic_vertex_candidate_rejects_expensive_polygon_rescue() {
     let bitmap = sharp_v_polygon_bitmap();
     let path = trace_first_path(&bitmap);
