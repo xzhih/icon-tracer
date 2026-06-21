@@ -263,6 +263,28 @@ pub(crate) fn pixel_potrace_candidate_is_no_more_complex(
         && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
 }
 
+pub(crate) fn pixel_potrace_fine_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 8;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if !pixel_potrace_candidate_is_no_more_complex(candidate, best) {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && pixel_potrace_candidate_is_better(path, canvas_size, candidate, best)
+}
+
 pub(crate) fn pixel_potrace_primitive_candidate_is_close_enough(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

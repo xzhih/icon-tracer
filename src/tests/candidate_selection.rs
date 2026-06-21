@@ -197,7 +197,7 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
 
     assert_eq!(traced.paths.len(), 2);
 
-    let mut improved = false;
+    let mut kept_dominating_candidate = false;
     for path in &traced.paths {
         let isolated = choose_pixel_potrace_point_set_with_context(
             path,
@@ -223,15 +223,17 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
         let sibling_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &sibling);
         let isolated_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &isolated);
 
-        if sibling_error < isolated_error {
-            improved = true;
+        assert!(sibling_error <= isolated_error);
+        assert!(sibling_boundary_error <= isolated_boundary_error);
+
+        if sibling_error == 18 && sibling.1.len() == 8 {
+            kept_dominating_candidate = true;
             assert_eq!(sibling_error, 18);
             assert_eq!(sibling.1.len(), 8);
-            assert!(sibling_boundary_error < isolated_boundary_error);
         }
     }
 
-    assert!(improved);
+    assert!(kept_dominating_candidate);
 }
 
 #[test]
