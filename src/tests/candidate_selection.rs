@@ -47,6 +47,70 @@ fn area_alpha_candidate_can_replace_bestpolygon_with_small_segment_growth() {
 }
 
 #[test]
+fn sibling_paths_can_accept_bestpolygon_area_candidate() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (157.0, 125.0, 200.0, 191.0, 18.0),
+        (115.0, 150.0, 155.0, 189.0, 12.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let selected = choose_pixel_potrace_point_set_with_context(path, 0.2, canvas_size, false, true)
+        .expect("fixture should produce a sibling selected candidate");
+    let mut pre_best =
+        pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
+            .expect("fixture should produce a base candidate");
+    let base = pre_best.clone();
+    let relaxed = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE,
+        canvas_size,
+        false,
+    )
+    .expect("fixture should produce a relaxed candidate");
+    if pixel_potrace_sibling_relaxed_candidate_is_better(path, canvas_size, &relaxed, &pre_best) {
+        pre_best = relaxed;
+    }
+    let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a sibling area-alpha candidate");
+    if pixel_potrace_sibling_area_candidate_is_better(path, canvas_size, &area, &pre_best) {
+        pre_best = area;
+    }
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+    assert!(!pixel_potrace_sibling_area_candidate_is_better(
+        path,
+        canvas_size,
+        &best_area,
+        &pre_best,
+    ));
+    assert!(pixel_potrace_sibling_best_area_rescue_candidate_is_better(
+        path,
+        canvas_size,
+        &best_area,
+        &pre_best,
+    ));
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height())
+    );
+}
+
+#[test]
 fn pixel_potrace_candidate_selection_rejects_shorter_mask_regression() {
     let path = TracePath {
         is_hole: false,
@@ -180,7 +244,7 @@ fn relaxed_point_set_candidate_selection_rejects_rendered_regression() {
 }
 
 #[test]
-fn sibling_paths_can_accept_dominating_strict_candidate() {
+fn sibling_paths_keep_strong_best_area_rescues_bounded() {
     let bitmap = rounded_rect_union_bitmap(&[
         (157.0, 125.0, 200.0, 191.0, 18.0),
         (115.0, 150.0, 155.0, 189.0, 12.0),
@@ -197,7 +261,7 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
 
     assert_eq!(traced.paths.len(), 2);
 
-    let mut kept_dominating_candidate = false;
+    let mut errors = Vec::new();
     for path in &traced.paths {
         let sibling = choose_pixel_potrace_point_set_with_context(
             path,
@@ -211,14 +275,41 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
         let sibling_error =
             pixel_potrace_candidate_mask_error(path, &sibling, bitmap.width(), bitmap.height());
 
-        if sibling_error == 18 && sibling.1.len() == 8 {
-            kept_dominating_candidate = true;
-            assert_eq!(sibling_error, 18);
-            assert_eq!(sibling.1.len(), 8);
-        }
+        assert!(sibling.1.len() <= 10, "{sibling:?}");
+        errors.push(sibling_error);
     }
+    errors.sort_unstable();
 
-    assert!(kept_dominating_candidate);
+    assert_eq!(errors, [9, 11]);
+}
+
+#[test]
+fn sibling_paths_keep_hole_templates_stable() {
+    let bitmap = parity_ring_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    assert!(traced.paths.iter().any(|path| path.is_hole));
+
+    for path in &traced.paths {
+        let without_sibling = choose_pixel_potrace_point_set(path, 0.2, canvas_size, true)
+            .expect("ring path should produce a non-sibling candidate");
+        let with_sibling =
+            choose_pixel_potrace_point_set_with_context(path, 0.2, canvas_size, true, true)
+                .expect("ring path should produce a sibling candidate");
+
+        assert_eq!(
+            compact_svg_path_data_from_segments_without_arcs(with_sibling.0, &with_sibling.1),
+            compact_svg_path_data_from_segments_without_arcs(without_sibling.0, &without_sibling.1)
+        );
+    }
 }
 
 #[test]

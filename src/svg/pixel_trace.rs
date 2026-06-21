@@ -146,6 +146,26 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 best = candidate;
             }
         }
+        if !has_holes {
+            if let Some(candidate) = bestpolygon_area_alpha_pixel_potrace_segments_for_points(
+                &path.points,
+                opt_tolerance,
+            ) {
+                if pixel_potrace_sibling_area_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) || pixel_potrace_sibling_best_area_rescue_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
+                    best = candidate;
+                }
+            }
+        }
         return Some(best);
     }
 
