@@ -324,6 +324,48 @@ pub(crate) fn pixel_potrace_diagonal_capsule_fine_candidate_is_better(
     candidate_boundary_error < best_boundary_error
 }
 
+pub(crate) fn pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
+    const MIN_SEGMENT_SAVINGS: usize = 2;
+    const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.02;
+    const MAX_EXTRA_FOREGROUND_DELTA: usize = 40;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if fit_closed_diagonal_capsule_potrace_segments(&path.points).is_none() {
+        return false;
+    }
+
+    if candidate.1.len().saturating_add(MIN_SEGMENT_SAVINGS) != best.1.len() {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
+        return false;
+    }
+
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    if candidate_boundary_error > best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR {
+        return false;
+    }
+
+    let candidate_delta =
+        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
+    let best_delta =
+        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
+}
+
 pub(crate) fn pixel_potrace_loose_candidate_is_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

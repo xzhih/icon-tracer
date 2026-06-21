@@ -610,6 +610,77 @@ fn pixel_low_angle_diagonal_capsule_rejects_tiny_fine_canaries() {
     }
 }
 
+#[test]
+fn pixel_diagonal_capsule_can_accept_small_best_area_rescue() {
+    let bitmap = capsule_bitmap((42.0, 104.0), (218.0, 154.0), 16.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let base = pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
+        .expect("fixture should produce base candidate");
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce best-area candidate");
+
+    assert!(
+        pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
+            path,
+            canvas_size,
+            &best_area,
+            &base,
+        )
+    );
+
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce selected candidate");
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+    );
+}
+
+#[test]
+fn pixel_diagonal_capsule_rejects_small_best_area_canaries() {
+    let fixtures = [
+        capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0),
+        capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+            .expect("fixture should produce selected candidate");
+        let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+            .expect("fixture should produce best-area candidate");
+
+        assert!(
+            !pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
+                path,
+                canvas_size,
+                &best_area,
+                &selected,
+            )
+        );
+    }
+}
+
 fn capsule_bitmap(start: (f64, f64), end: (f64, f64), half_width: f64) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)
