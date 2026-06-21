@@ -314,12 +314,86 @@ fn pixel_thin_ring_sector_can_accept_bounded_best_area_rescue() {
         &best_area,
         &loose,
     ));
+}
 
-    let selected =
-        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
-            .expect("fixture should produce selected candidate");
+#[test]
+fn pixel_thin_ring_sector_can_accept_loose_vertex_rescue() {
+    let bitmap = ring_sector_bitmap(120.0, 420.0, 48.0, 82.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce best-area candidate");
+    let loose_vertex =
+        bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
+            &path.points,
+            0.2,
+            1.0,
+        )
+        .expect("fixture should produce loose-vertex candidate");
+
+    assert!(
+        pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
+            path,
+            canvas_size,
+            &loose_vertex,
+            &best_area,
+        )
+    );
+
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+        compact_svg_path_data_from_segments_without_arcs(loose_vertex.0, &loose_vertex.1)
     );
+}
+
+#[test]
+fn pixel_ring_sector_rejects_loose_vertex_canaries() {
+    let fixtures = [
+        ring_sector_bitmap(70.0, 290.0, 38.0, 80.0),
+        ring_sector_bitmap(210.0, 140.0, 36.0, 76.0),
+        ring_sector_bitmap(350.0, 190.0, 44.0, 82.0),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+            .expect("fixture should produce selected candidate");
+        let loose_vertex =
+            bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
+                &path.points,
+                0.2,
+                1.0,
+            )
+            .expect("fixture should produce loose-vertex candidate");
+
+        assert!(
+            !pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
+                path,
+                canvas_size,
+                &loose_vertex,
+                &selected,
+            )
+        );
+    }
 }

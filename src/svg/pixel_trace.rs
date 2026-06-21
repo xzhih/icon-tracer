@@ -236,6 +236,22 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 best = candidate;
             }
         }
+        if let Some(candidate) =
+            bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
+                &path.points,
+                opt_tolerance,
+                1.0,
+            )
+        {
+            if pixel_potrace_thin_ring_sector_loose_vertex_candidate_is_better(
+                path,
+                canvas_size,
+                &candidate,
+                &best,
+            ) {
+                best = candidate;
+            }
+        }
     }
 
     Some(best)
