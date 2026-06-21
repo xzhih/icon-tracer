@@ -909,17 +909,20 @@ pub(crate) fn choose_pixel_potrace_segments(
                 &path.points,
                 opt_tolerance,
             ) {
-                if pixel_potrace_area_alpha_final_candidate_is_better(
+                let final_better = pixel_potrace_area_alpha_final_candidate_is_better(
                     path,
                     canvas_size,
                     &candidate,
                     &best,
-                ) || pixel_potrace_area_alpha_smoothing_candidate_is_better(
+                    !protected_template,
+                );
+                let smoothing_better = pixel_potrace_area_alpha_smoothing_candidate_is_better(
                     path,
                     canvas_size,
                     &candidate,
                     &best,
-                ) {
+                );
+                if final_better || smoothing_better {
                     best = candidate;
                 }
             }
@@ -935,13 +938,14 @@ pub(crate) fn choose_pixel_potrace_segments(
                         PIXEL_POTRACE_LINEAR_DEVIATION,
                     );
                     if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
-                        || pixel_potrace_primitive_candidate_is_close_enough(
-                            path,
-                            canvas_size,
-                            &candidate,
-                            &best,
-                        )
-                        || pixel_potrace_fitted_candidate_is_close_enough(
+                        || (pixel_potrace_candidate_is_no_more_complex(&candidate, &best)
+                            && pixel_potrace_primitive_candidate_is_close_enough(
+                                path,
+                                canvas_size,
+                                &candidate,
+                                &best,
+                            ))
+                        || pixel_potrace_fitted_candidate_is_materially_better(
                             path,
                             canvas_size,
                             &candidate,
@@ -963,7 +967,12 @@ pub(crate) fn choose_pixel_potrace_segments(
                     opt_tolerance,
                     PIXEL_POTRACE_LINEAR_DEVIATION,
                 );
-                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                if pixel_potrace_fitted_candidate_is_materially_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
                     best = candidate;
                 }
             }

@@ -114,10 +114,15 @@ pub(crate) fn pixel_potrace_area_alpha_final_candidate_is_better(
     canvas_size: Option<(usize, usize)>,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
+    allow_material_growth: bool,
 ) -> bool {
     const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
+    const MATERIAL_MASK_IMPROVEMENT_PIXELS: usize = 32;
     const STRONG_MASK_IMPROVEMENT_PIXELS: usize = 64;
     const MAX_EXTRA_D_BYTES: usize = 8;
+    const MAX_MATERIAL_EXTRA_D_BYTES: usize = 96;
+    const MAX_MATERIAL_EXTRA_SEGMENTS: usize = 2;
+    const MIN_MATERIAL_MIRROR_MISMATCH_RATIO: f64 = 0.3;
     const STRONG_MIN_D_BYTES_SAVINGS: usize = 64;
     const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.02;
     const MIN_BEST_SEGMENTS: usize = 16;
@@ -150,6 +155,16 @@ pub(crate) fn pixel_potrace_area_alpha_final_candidate_is_better(
         compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
     let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
     if saves_segments && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
+        return true;
+    }
+
+    if allow_material_growth
+        && candidate.1.len() <= best.1.len().saturating_add(MAX_MATERIAL_EXTRA_SEGMENTS)
+        && candidate_error.saturating_add(MATERIAL_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && candidate_bytes <= best_bytes.saturating_add(MAX_MATERIAL_EXTRA_D_BYTES)
+        && pixel_potrace_horizontal_mirror_mismatch_ratio(path, width, height)
+            >= MIN_MATERIAL_MIRROR_MISMATCH_RATIO
+    {
         return true;
     }
 
@@ -207,13 +222,23 @@ pub(crate) fn pixel_potrace_area_alpha_smoothing_candidate_is_better(
     candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
 }
 
-pub(crate) fn pixel_potrace_fitted_candidate_is_close_enough(
+pub(crate) fn pixel_potrace_fitted_candidate_is_materially_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
     candidate: &((f64, f64), Vec<SvgPathSegment>),
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
-    const MAX_EXTRA_MASK_PIXELS: usize = 5;
+    const MIN_LONGER_FIT_MASK_IMPROVEMENT: usize = 8;
+    const MAX_SHORT_FIT_EXTRA_D_BYTES: usize = 16;
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    if candidate.1.len() <= best.1.len()
+        && candidate_bytes <= best_bytes.saturating_add(MAX_SHORT_FIT_EXTRA_D_BYTES)
+    {
+        return pixel_potrace_candidate_is_better(path, canvas_size, candidate, best);
+    }
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -221,8 +246,21 @@ pub(crate) fn pixel_potrace_fitted_candidate_is_close_enough(
 
     let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
     let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    candidate_error <= best_error.saturating_add(MAX_EXTRA_MASK_PIXELS)
-        && candidate.1.len() >= best.1.len()
+    candidate_error.saturating_add(MIN_LONGER_FIT_MASK_IMPROVEMENT) <= best_error
+        && pixel_potrace_candidate_is_better(path, canvas_size, candidate, best)
+}
+
+pub(crate) fn pixel_potrace_candidate_is_no_more_complex(
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MAX_EXTRA_D_BYTES: usize = 16;
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    candidate.1.len() <= best.1.len()
+        && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
 }
 
 pub(crate) fn pixel_potrace_primitive_candidate_is_close_enough(

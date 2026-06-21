@@ -138,6 +138,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 canvas_size,
                 &candidate,
                 &best,
+                true,
             ) {
                 best = candidate;
             }
