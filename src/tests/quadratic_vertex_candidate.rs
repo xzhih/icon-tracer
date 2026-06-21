@@ -6,8 +6,10 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
         local_polygon_bitmap(&[(58.0, 62.0), (194.0, 46.0), (212.0, 194.0), (42.0, 210.0)]);
     let path = trace_first_path(&bitmap);
     let canvas_size = Some((bitmap.width(), bitmap.height()));
-    let best = pixel_potrace_segments_for_points(&path, &path.points, 0.2, canvas_size, false)
-        .expect("fixture should produce base candidate");
+    let relaxed = relaxed_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a relaxed candidate");
+    let quadrilateral = relaxed_quadrilateral_line_candidate(&path)
+        .expect("fixture should produce a simplified quadrilateral candidate");
     let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce quadratic candidate");
 
@@ -15,14 +17,25 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
         &path,
         canvas_size,
         &quadratic,
-        &best,
+        &quadrilateral,
     ));
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(quadrilateral.0, &quadrilateral.1),
+        "M58 62l136-16 18 148-170 16Z"
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(&path, &quadrilateral, bitmap.width(), bitmap.height())
+            < pixel_potrace_candidate_mask_error(&path, &relaxed, bitmap.width(), bitmap.height())
+    );
 
     let selected = choose_pixel_potrace_point_set(&path, 0.2, canvas_size, false)
         .expect("fixture should produce selected candidate");
-    assert_ne!(
+    assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(quadratic.0, &quadratic.1)
+        compact_svg_path_data_from_segments_without_arcs(quadrilateral.0, &quadrilateral.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(&path, &selected, bitmap.width(), bitmap.height()) <= 48
     );
 }
 

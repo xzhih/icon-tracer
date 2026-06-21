@@ -119,6 +119,15 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
         }
     }
 
+    if !protected_template {
+        if let Some(candidate) = relaxed_quadrilateral_line_candidate(path) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                best = candidate;
+                best_is_base = false;
+            }
+        }
+    }
+
     if has_sibling_paths {
         if opt_tolerance < PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE {
             if let Some(candidate) = pixel_potrace_segments_for_points(

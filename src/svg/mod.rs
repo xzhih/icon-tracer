@@ -8,6 +8,7 @@ mod potrace_cleanup;
 mod potrace_optimize;
 mod potrace_polygon;
 mod potrace_vertex;
+mod relaxed_polygon;
 mod templates;
 
 pub(crate) use cubic::*;
@@ -20,6 +21,7 @@ pub(crate) use potrace_cleanup::*;
 pub(crate) use potrace_optimize::*;
 pub(crate) use potrace_polygon::*;
 pub(crate) use potrace_vertex::*;
+pub(crate) use relaxed_polygon::*;
 pub(crate) use templates::*;
 
 use crate::{CurveMode, SvgRenderOptions, TracePath};
@@ -1071,6 +1073,14 @@ pub(crate) fn choose_pixel_potrace_segments(
             if let Some(candidate) =
                 relaxed_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
             {
+                if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
+                    best = candidate;
+                }
+            }
+        }
+
+        if !preserve_primitive {
+            if let Some(candidate) = relaxed_quadrilateral_line_candidate(path) {
                 if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best) {
                     best = candidate;
                 }
