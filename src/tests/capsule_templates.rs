@@ -475,6 +475,35 @@ fn pixel_low_angle_diagonal_capsule_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_shallow_angle_diagonal_capsule_uses_potrace_template() {
+    let bitmap = capsule_bitmap((40.0, 78.0), (210.0, 92.0), 21.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a candidate");
+    let segments = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let candidate = (segments[0].start(), segments.clone());
+    let candidate_error =
+        pixel_potrace_candidate_mask_error(path, &candidate, bitmap.width(), bitmap.height());
+    let final_error =
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height());
+
+    assert_eq!(segments.len(), 8, "{segments:?}");
+    assert!(candidate_error <= 215, "{candidate_error}");
+    assert!(final_error <= 205, "{final_error}");
+}
+
+#[test]
 fn pixel_diagonal_capsule_rejects_compact_candidate_when_too_expensive() {
     let bitmap = capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0);
     let traced = trace_bitmap(

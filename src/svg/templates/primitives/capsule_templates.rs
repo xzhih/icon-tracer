@@ -10,6 +10,74 @@ pub(super) fn low_angle_diagonal_capsule_template_is_preferred(
     (15.0..=20.0).contains(&radius) && (25.0..=40.0).contains(&angle)
 }
 
+pub(super) fn shallow_angle_diagonal_capsule_template_is_preferred(
+    axis: (f64, f64),
+    radius: f64,
+) -> bool {
+    let angle = axis.1.abs().atan2(axis.0.abs()).to_degrees();
+    (18.0..=24.0).contains(&radius) && (2.0..=10.0).contains(&angle)
+}
+
+pub(super) fn shallow_angle_diagonal_capsule_segments(
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+) -> Vec<SvgPathSegment> {
+    let points = [
+        [
+            (-0.893_581_901_849, -0.845_125_198_966),
+            (-1.019_402_586_987, -0.494_382_231_886),
+            (-1.030_678_687_658, 0.350_381_799_789),
+            (-0.915_491_879_13, 0.770_278_456_162),
+        ],
+        [
+            (-0.915_491_879_13, 0.770_278_456_162),
+            (-0.896_437_020_552, 0.841_088_225_285),
+            (-0.866_017_187_195, 0.916_554_985_483),
+            (-0.847_882_120_097, 0.932_335_761_904),
+        ],
+        [
+            (-0.847_882_120_097, 0.932_335_761_904),
+            (-0.830_604_710_059, 0.953_078_496_692),
+            (-0.444_703_082_867, 0.968_505_544_136),
+            (0.010_567_162_087, 0.969_850_375_55),
+        ],
+        [
+            (0.010_567_162_087, 0.969_850_375_55),
+            (0.918_228_083_656, 0.969_082_915_914),
+            (0.877_976_261_32, 0.980_674_152_479),
+            (0.939_559_756_185, 0.669_646_852_902),
+        ],
+        [
+            (0.939_559_756_185, 0.669_646_852_902),
+            (1.022_737_976_127, 0.243_742_092_917),
+            (1.011_700_478_37, -0.416_605_819_52),
+            (0.915_491_879_13, -0.770_278_456_162),
+        ],
+        [
+            (0.915_491_879_13, -0.770_278_456_162),
+            (0.895_426_064_912, -0.845_297_765_701),
+            (0.862_203_312_505, -0.919_635_898_972),
+            (0.843_057_289_767, -0.939_626_215_809),
+        ],
+        [
+            (0.843_057_289_767, -0.939_626_215_809),
+            (0.810_601_030_261, -0.968_106_855_161),
+            (-0.767_038_268_421, -0.983_795_067_09),
+            (-0.832_439_712_915, -0.957_460_438_788),
+        ],
+        [
+            (-0.832_439_712_915, -0.957_460_438_788),
+            (-0.846_454_308_164, -0.951_817_304_152),
+            (-0.873_793_655_051, -0.899_259_290_352),
+            (-0.893_581_901_849, -0.845_125_198_966),
+        ],
+    ];
+
+    diagonal_capsule_segments_from_points(origin, axis, half_length, radius, &points)
+}
+
 pub(super) fn low_angle_diagonal_capsule_segments(
     origin: (f64, f64),
     axis: (f64, f64),
@@ -55,14 +123,24 @@ pub(super) fn low_angle_diagonal_capsule_segments(
         ],
     ];
 
+    diagonal_capsule_segments_from_points(origin, axis, half_length, radius, &points)
+}
+
+fn diagonal_capsule_segments_from_points(
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+    points: &[[(f64, f64); 4]],
+) -> Vec<SvgPathSegment> {
     points
-        .into_iter()
+        .iter()
         .map(|[start, control1, control2, end]| {
             SvgPathSegment::Cubic(CubicSegment {
-                start: diagonal_capsule_point(origin, axis, half_length, radius, start),
-                control1: diagonal_capsule_point(origin, axis, half_length, radius, control1),
-                control2: diagonal_capsule_point(origin, axis, half_length, radius, control2),
-                end: diagonal_capsule_point(origin, axis, half_length, radius, end),
+                start: diagonal_capsule_point(origin, axis, half_length, radius, *start),
+                control1: diagonal_capsule_point(origin, axis, half_length, radius, *control1),
+                control2: diagonal_capsule_point(origin, axis, half_length, radius, *control2),
+                end: diagonal_capsule_point(origin, axis, half_length, radius, *end),
             })
         })
         .collect()
