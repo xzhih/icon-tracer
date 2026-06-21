@@ -419,6 +419,13 @@ pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
     const MAX_THIN_EXTRA_D_BYTES: usize = 220;
     const MAX_THIN_CANDIDATE_FOREGROUND_DELTA: usize = 24;
     const MAX_THIN_BEST_FOREGROUND_DELTA: usize = 8;
+    const MIN_COMPACT_ANNULAR_SEGMENT_GROWTH: usize = 8;
+    const MAX_COMPACT_ANNULAR_SEGMENT_GROWTH: usize = 10;
+    const MAX_COMPACT_ANNULAR_BEST_ERROR: usize = 24;
+    const MAX_COMPACT_ANNULAR_EXTRA_MASK_PIXELS: usize = 128;
+    const MAX_COMPACT_ANNULAR_EXTRA_D_BYTES: usize = 300;
+    const MAX_COMPACT_ANNULAR_EXTRA_BOUNDARY_ERROR: f64 = 0.12;
+    const MAX_COMPACT_ANNULAR_EXTRA_FOREGROUND_DELTA: usize = 4;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -452,12 +459,34 @@ pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
         return true;
     }
 
-    (MIN_THIN_SEGMENT_GROWTH..=MAX_THIN_SEGMENT_GROWTH).contains(&segment_growth)
+    if (MIN_THIN_SEGMENT_GROWTH..=MAX_THIN_SEGMENT_GROWTH).contains(&segment_growth)
         && candidate_bytes <= best_bytes.saturating_add(MAX_THIN_EXTRA_D_BYTES)
         && candidate_error <= best_error.saturating_add(MAX_THIN_EXTRA_MASK_PIXELS)
         && candidate_boundary_error < best_boundary_error
         && candidate_delta <= MAX_THIN_CANDIDATE_FOREGROUND_DELTA
         && best_delta <= MAX_THIN_BEST_FOREGROUND_DELTA
+    {
+        return true;
+    }
+
+    let compact_annular_best =
+        fit_closed_annular_sector_potrace_segments(&path.points, canvas_size).is_some_and(
+            |segments| {
+                segments.first().is_some_and(|first| {
+                    compact_svg_path_data_from_segments_without_arcs(first.start(), &segments)
+                        == compact_svg_path_data_from_segments_without_arcs(best.0, &best.1)
+                })
+            },
+        );
+    compact_annular_best
+        && (MIN_COMPACT_ANNULAR_SEGMENT_GROWTH..=MAX_COMPACT_ANNULAR_SEGMENT_GROWTH)
+            .contains(&segment_growth)
+        && best_error <= MAX_COMPACT_ANNULAR_BEST_ERROR
+        && candidate_error <= best_error.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_MASK_PIXELS)
+        && candidate_bytes <= best_bytes.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_D_BYTES)
+        && candidate_boundary_error
+            <= best_boundary_error + MAX_COMPACT_ANNULAR_EXTRA_BOUNDARY_ERROR
+        && candidate_delta <= best_delta.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_FOREGROUND_DELTA)
 }
 
 fn pixel_potrace_points_are_detailed_annular_sector(
