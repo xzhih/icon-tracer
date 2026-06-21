@@ -2,8 +2,13 @@ use super::*;
 
 mod capsule;
 mod capsule_templates;
+mod rounded_rect_templates;
 
 pub(crate) use capsule::*;
+
+use rounded_rect_templates::{
+    vertical_rounded_rect_potrace_segments, vertical_rounded_rect_template_is_preferred,
+};
 
 pub(crate) fn fit_closed_smooth_potrace_segments(
     points: &[(f64, f64)],
@@ -140,6 +145,21 @@ pub(crate) fn horizontal_upright_triangle_segments(bounds: FloatBounds) -> Vec<S
 pub(crate) fn fit_closed_rounded_rect_potrace_segments(
     points: &[(f64, f64)],
 ) -> Option<Vec<SvgPathSegment>> {
+    fit_closed_rounded_rect_potrace_segments_with(points, |_, _, _| true)
+}
+
+pub(crate) fn fit_closed_vertical_rounded_rect_potrace_segments(
+    points: &[(f64, f64)],
+) -> Option<Vec<SvgPathSegment>> {
+    fit_closed_rounded_rect_potrace_segments_with(points, |width, height, radius_ratio| {
+        vertical_rounded_rect_template_is_preferred(width, height, radius_ratio)
+    })
+}
+
+fn fit_closed_rounded_rect_potrace_segments_with(
+    points: &[(f64, f64)],
+    accepts_template: impl FnOnce(f64, f64, f64) -> bool,
+) -> Option<Vec<SvgPathSegment>> {
     const MIN_RADIUS: f64 = 6.0;
     const MAX_RADIUS_RATIO: f64 = 0.45;
 
@@ -152,6 +172,11 @@ pub(crate) fn fit_closed_rounded_rect_potrace_segments(
 
     let radius = estimate_rounded_rect_radius(points, bounds)?;
     if radius < MIN_RADIUS || radius >= width.min(height) * MAX_RADIUS_RATIO {
+        return None;
+    }
+
+    let radius_ratio = radius / width.min(height);
+    if !accepts_template(width, height, radius_ratio) {
         return None;
     }
 
@@ -301,6 +326,10 @@ pub(crate) fn rounded_rect_potrace_segments(
     let width = bounds.max_x - bounds.min_x;
     let height = bounds.max_y - bounds.min_y;
     let radius_ratio = radius / width.min(height);
+
+    if vertical_rounded_rect_template_is_preferred(width, height, radius_ratio) {
+        return vertical_rounded_rect_potrace_segments(bounds);
+    }
 
     if radius_ratio >= 0.16 {
         large_rounded_rect_potrace_segments(bounds)

@@ -647,6 +647,25 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(rounded_rect) =
+                fit_closed_vertical_rounded_rect_potrace_segments(&path.points)
+            {
+                if let Some(first) = rounded_rect.first() {
+                    let candidate = (first.start(), rounded_rect);
+                    if pixel_potrace_rounded_rect_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) {
+                        best = candidate;
+                        preserve_primitive = true;
+                    }
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(rounded_rect) = fit_closed_rounded_rect_potrace_segments(&path.points) {
                 if let Some(first) = rounded_rect.first() {
                     let candidate = (first.start(), rounded_rect);

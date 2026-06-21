@@ -10,6 +10,7 @@ mod path_data;
 mod pixel_templates;
 mod potrace_core;
 mod ring_sector_templates;
+mod rounded_rect_templates;
 mod sharp_v_templates;
 mod stepped_e_templates;
 mod u_shape_templates;
