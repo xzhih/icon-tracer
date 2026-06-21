@@ -356,6 +356,74 @@ fn sibling_paths_reject_relaxed_candidate_when_potrace_parity_regresses() {
 }
 
 #[test]
+fn sibling_paths_can_accept_bounded_area_rescue() {
+    let fixtures = [
+        rounded_rect_union_bitmap(&[
+            (48.0, 45.0, 99.0, 127.0, 25.0),
+            (50.0, 100.0, 94.0, 178.0, 11.0),
+            (147.0, 143.0, 183.0, 186.0, 9.0),
+        ]),
+        rounded_rect_union_bitmap(&[
+            (160.0, 65.0, 206.0, 205.0, 23.0),
+            (46.0, 54.0, 139.0, 125.0, 11.0),
+        ]),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        assert_eq!(traced.paths.len(), 2);
+
+        let mut accepted_area_components = 0usize;
+        for path in &traced.paths {
+            let mut pre_area =
+                pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
+                    .expect("fixture path should produce base candidate");
+            let relaxed = pixel_potrace_segments_for_points(
+                path,
+                &path.points,
+                PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE,
+                canvas_size,
+                false,
+            )
+            .expect("fixture path should produce relaxed candidate");
+            if pixel_potrace_sibling_relaxed_candidate_is_better(
+                path,
+                canvas_size,
+                &relaxed,
+                &pre_area,
+            ) {
+                pre_area = relaxed;
+            }
+
+            let selected =
+                choose_pixel_potrace_point_set_with_context(path, 0.2, canvas_size, false, true)
+                    .expect("fixture path should produce sibling-aware candidate");
+            let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+                .expect("fixture path should produce area candidate");
+
+            if pixel_potrace_sibling_area_candidate_is_better(path, canvas_size, &area, &pre_area) {
+                accepted_area_components += 1;
+                assert_eq!(
+                    compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+                    compact_svg_path_data_from_segments_without_arcs(area.0, &area.1)
+                );
+            }
+        }
+
+        assert_eq!(accepted_area_components, 1);
+    }
+}
+
+#[test]
 fn coverage_threshold_rasterizer_matches_integer_square_pixels() {
     let path = TracePath {
         is_hole: false,

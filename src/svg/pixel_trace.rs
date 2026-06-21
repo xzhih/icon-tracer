@@ -136,6 +136,14 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 }
             }
         }
+        if let Some(candidate) =
+            area_alpha_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+        {
+            if pixel_potrace_sibling_area_candidate_is_better(path, canvas_size, &candidate, &best)
+            {
+                best = candidate;
+            }
+        }
         return Some(best);
     }
 

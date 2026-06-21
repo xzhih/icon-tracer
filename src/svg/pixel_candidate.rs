@@ -548,6 +548,51 @@ pub(crate) fn pixel_potrace_sibling_relaxed_candidate_is_better(
     pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, best_boundary_error)
 }
 
+pub(crate) fn pixel_potrace_sibling_area_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
+    const MAX_EXTRA_D_BYTES: usize = 16;
+    const MAX_EXTRA_SEGMENTS: usize = 2;
+    const MAX_EXTRA_FOREGROUND_DELTA: usize = 4;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if candidate.1.len() > best.1.len().saturating_add(MAX_EXTRA_SEGMENTS) {
+        return false;
+    }
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
+        return false;
+    }
+
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    if candidate_boundary_error >= best_boundary_error {
+        return false;
+    }
+
+    let candidate_delta =
+        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
+    let best_delta =
+        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
+}
+
 pub(crate) fn pixel_potrace_primitive_candidate_is_close_enough(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
