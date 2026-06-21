@@ -326,6 +326,29 @@ pub(crate) fn pixel_potrace_loose_candidate_is_better(
     pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, best_boundary_error)
 }
 
+pub(crate) fn pixel_potrace_best_area_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_FOREGROUND_DELTA_IMPROVEMENT: usize = 4;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if !pixel_potrace_loose_candidate_is_better(path, canvas_size, candidate, best) {
+        return false;
+    }
+
+    let candidate_delta =
+        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
+    let best_delta =
+        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+    candidate_delta.saturating_add(MIN_FOREGROUND_DELTA_IMPROVEMENT) <= best_delta
+}
+
 pub(crate) fn pixel_potrace_primitive_candidate_is_close_enough(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,

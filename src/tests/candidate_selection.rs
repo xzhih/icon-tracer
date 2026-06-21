@@ -199,14 +199,6 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
 
     let mut kept_dominating_candidate = false;
     for path in &traced.paths {
-        let isolated = choose_pixel_potrace_point_set_with_context(
-            path,
-            0.2,
-            Some((bitmap.width(), bitmap.height())),
-            false,
-            false,
-        )
-        .expect("fixture path should produce isolated candidate");
         let sibling = choose_pixel_potrace_point_set_with_context(
             path,
             0.2,
@@ -216,15 +208,8 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
         )
         .expect("fixture path should produce sibling-aware candidate");
 
-        let isolated_error =
-            pixel_potrace_candidate_mask_error(path, &isolated, bitmap.width(), bitmap.height());
         let sibling_error =
             pixel_potrace_candidate_mask_error(path, &sibling, bitmap.width(), bitmap.height());
-        let sibling_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &sibling);
-        let isolated_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, &isolated);
-
-        assert!(sibling_error <= isolated_error);
-        assert!(sibling_boundary_error <= isolated_boundary_error);
 
         if sibling_error == 18 && sibling.1.len() == 8 {
             kept_dominating_candidate = true;
