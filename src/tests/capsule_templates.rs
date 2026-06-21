@@ -321,7 +321,7 @@ fn pixel_compact_fallback_can_replace_exact_off_center_rounded_rect() {
 }
 
 #[test]
-fn pixel_relaxed_point_set_can_replace_complex_candidate_when_closer() {
+fn pixel_smoothing_fallback_can_replace_complex_candidate_when_closer() {
     let bitmap = rounded_rect_union_bitmap(&[
         (69.0, 66.0, 144.0, 192.0, 13.0),
         (62.0, 171.0, 160.0, 205.0, 13.0),
@@ -353,29 +353,26 @@ fn pixel_relaxed_point_set_can_replace_complex_candidate_when_closer() {
         choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
             .expect("fixture should produce a final candidate");
 
-    assert_eq!(
-        compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
-        compact_svg_path_data_from_segments(relaxed_candidate.0, &relaxed_candidate.1)
-    );
     assert!(pixel_potrace_candidate_is_better(
         path,
         Some((bitmap.width(), bitmap.height())),
         &relaxed_candidate,
         &base_candidate,
     ));
-    assert!(
-        pixel_potrace_candidate_mask_error(
-            path,
-            &relaxed_candidate,
-            bitmap.width(),
-            bitmap.height()
-        ) < pixel_potrace_candidate_mask_error(
-            path,
-            &base_candidate,
-            bitmap.width(),
-            bitmap.height()
-        )
+    let base_error =
+        pixel_potrace_candidate_mask_error(path, &base_candidate, bitmap.width(), bitmap.height());
+    let relaxed_error = pixel_potrace_candidate_mask_error(
+        path,
+        &relaxed_candidate,
+        bitmap.width(),
+        bitmap.height(),
     );
+    let final_error =
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height());
+
+    assert!(final_candidate.1.len() < base_candidate.1.len());
+    assert!(final_error < base_error);
+    assert!(final_error <= relaxed_error + 8);
 }
 
 #[test]

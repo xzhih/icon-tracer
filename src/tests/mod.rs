@@ -6,6 +6,7 @@ mod candidate_selection;
 mod capsule_templates;
 mod cleanup;
 mod fine_opt_candidate;
+mod loose_opt_candidate;
 mod optimizer;
 mod path_data;
 mod pixel_templates;
