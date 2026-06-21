@@ -333,6 +333,9 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
     const MIN_FOREGROUND_DELTA_IMPROVEMENT: usize = 4;
+    const MIN_MASK_RESCUE_IMPROVEMENT: usize = 5;
+    const MIN_MASK_RESCUE_SEGMENT_SAVINGS: usize = 8;
+    const MAX_MASK_RESCUE_FOREGROUND_DELTA: usize = 64;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -346,7 +349,19 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
         pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    candidate_delta.saturating_add(MIN_FOREGROUND_DELTA_IMPROVEMENT) <= best_delta
+    if candidate_delta.saturating_add(MIN_FOREGROUND_DELTA_IMPROVEMENT) <= best_delta {
+        return true;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    candidate_error.saturating_add(MIN_MASK_RESCUE_IMPROVEMENT) <= best_error
+        && candidate
+            .1
+            .len()
+            .saturating_add(MIN_MASK_RESCUE_SEGMENT_SAVINGS)
+            <= best.1.len()
+        && candidate_delta <= MAX_MASK_RESCUE_FOREGROUND_DELTA
 }
 
 pub(crate) fn pixel_potrace_primitive_candidate_is_close_enough(

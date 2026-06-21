@@ -143,6 +143,60 @@ fn bestpolygon_area_alpha_candidate_can_rescue_overlapping_union() {
 }
 
 #[test]
+fn bestpolygon_area_alpha_candidate_can_rescue_mask_better_unions() {
+    let fixtures = [
+        rounded_rect_union_bitmap(&[
+            (62.0, 65.0, 104.0, 125.0, 15.0),
+            (88.0, 97.0, 145.0, 172.0, 27.0),
+            (36.0, 66.0, 146.0, 205.0, 28.0),
+        ]),
+        rounded_rect_union_bitmap(&[
+            (76.0, 46.0, 118.0, 170.0, 10.0),
+            (155.0, 73.0, 190.0, 124.0, 17.0),
+            (80.0, 55.0, 188.0, 147.0, 25.0),
+        ]),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+            .expect("fixture should produce a selected candidate");
+        let base = pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
+            .expect("fixture should produce a base candidate");
+        let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+            .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+        assert!(pixel_potrace_best_area_candidate_is_better(
+            path,
+            canvas_size,
+            &best_area,
+            &base,
+        ));
+        assert_eq!(
+            compact_svg_path_data_from_segments(selected.0, &selected.1),
+            compact_svg_path_data_from_segments(best_area.0, &best_area.1)
+        );
+
+        let selected_error =
+            pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height());
+        let base_error =
+            pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height());
+        assert!(selected_error < base_error);
+        assert!(selected.1.len().saturating_add(8) <= base.1.len());
+    }
+}
+
+#[test]
 fn bestpolygon_area_alpha_candidate_rejects_template_regressions() {
     let fixtures = [
         rounded_rect_union_bitmap(&[

@@ -73,7 +73,7 @@ fn pixel_vertical_capsule_prefers_regular_template_when_boundary_is_closer() {
 }
 
 #[test]
-fn pixel_rounded_rect_union_allows_closer_fitted_override() {
+fn pixel_rounded_rect_union_allows_best_area_rescue_over_fitted_override() {
     let bitmap = rounded_rect_union_bitmap(&[
         (62.0, 65.0, 104.0, 125.0, 15.0),
         (88.0, 97.0, 145.0, 172.0, 27.0),
@@ -96,15 +96,23 @@ fn pixel_rounded_rect_union_allows_closer_fitted_override() {
     let first = fitted.first().expect("fixture should fit smooth segments");
     let fitted_candidate =
         optimize_potrace_segments(first.start(), &fitted, 0.2, PIXEL_POTRACE_LINEAR_DEVIATION);
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a best-area candidate");
 
     assert_eq!(
         compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1),
-        compact_svg_path_data_from_segments(fitted_candidate.0, &fitted_candidate.1)
+        compact_svg_path_data_from_segments(best_area.0, &best_area.1)
     );
-    assert!(
-        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height())
-            <= 65
+    let final_error =
+        pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height());
+    let fitted_error = pixel_potrace_candidate_mask_error(
+        path,
+        &fitted_candidate,
+        bitmap.width(),
+        bitmap.height(),
     );
+    assert!(final_error < fitted_error);
+    assert!(final_error <= 50);
 }
 
 #[test]
