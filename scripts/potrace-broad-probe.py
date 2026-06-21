@@ -111,8 +111,9 @@ def main() -> int:
     }
     pp.write_json(out_dir / "report.json", report)
     pp.write_csv(out_dir / "report.csv", rows)
-    pp.write_markdown(out_dir / "report.md", rows)
+    write_broad_markdown(pp, out_dir / "report.md", rows)
     pp.print_table(rows)
+    print_broad_summary(rows)
     print_worst_gaps(rows)
     print(f"\nreport: {out_dir / 'report.md'}")
 
@@ -304,6 +305,22 @@ def fill(pp, predicate) -> list[bool]:
     return [predicate(x, y) for y in range(pp.CANVAS) for x in range(pp.CANVAS)]
 
 
+def total_mask_ae_pixels(rows: list[dict]) -> int:
+    return sum(row["mask_ae_pixels"] for row in rows)
+
+
+def print_broad_summary(rows: list[dict]) -> None:
+    print(f"\ntotal broad AE: {total_mask_ae_pixels(rows)} / {TOTAL_AE_LIMIT}")
+
+
+def write_broad_markdown(pp, path: Path, rows: list[dict]) -> None:
+    pp.write_markdown(path, rows)
+    text = path.read_text(encoding="utf-8")
+    summary = f"Total broad AE: `{total_mask_ae_pixels(rows)}` / `{TOTAL_AE_LIMIT}`"
+    text = text.replace(f"Mode: `{pp.MODE}`\n", f"Mode: `{pp.MODE}`\n\n{summary}\n", 1)
+    path.write_text(text, encoding="utf-8")
+
+
 def print_worst_gaps(rows: list[dict]) -> None:
     print("\nworst broad gaps:")
     for row in sorted(rows, key=lambda item: (-item["mask_ae_pixels"], item["fixture"]))[:12]:
@@ -316,7 +333,7 @@ def print_worst_gaps(rows: list[dict]) -> None:
 
 def broad_regressions(rows: list[dict]) -> list[str]:
     failures = []
-    total = sum(row["mask_ae_pixels"] for row in rows)
+    total = total_mask_ae_pixels(rows)
     if total > TOTAL_AE_LIMIT:
         failures.append(f"total mask_ae_pixels {total} > {TOTAL_AE_LIMIT}")
     for row in rows:
