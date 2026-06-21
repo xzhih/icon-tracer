@@ -1,6 +1,7 @@
 use super::*;
 
 mod capsule;
+mod capsule_templates;
 
 pub(crate) use capsule::*;
 
