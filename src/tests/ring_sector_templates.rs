@@ -253,7 +253,7 @@ fn pixel_ring_sector_can_accept_compact_annular_detail_rescue() {
         bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
             &path.points,
             0.2,
-            1.0,
+            RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT,
         )
         .expect("fixture should produce loose-vertex candidate");
 
@@ -371,7 +371,7 @@ fn pixel_thin_ring_sector_can_accept_loose_vertex_rescue() {
         bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
             &path.points,
             0.2,
-            1.0,
+            RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT,
         )
         .expect("fixture should produce loose-vertex candidate");
 
@@ -410,7 +410,7 @@ fn pixel_moderate_gap_ring_sector_can_accept_loose_vertex_rescue() {
         bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
             &path.points,
             0.2,
-            1.0,
+            RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT,
         )
         .expect("fixture should produce loose-vertex candidate");
 
@@ -454,7 +454,7 @@ fn pixel_ring_sector_rejects_loose_vertex_canaries() {
             bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
                 &path.points,
                 0.2,
-                1.0,
+                RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT,
             )
             .expect("fixture should produce loose-vertex candidate");
 

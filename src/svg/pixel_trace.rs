@@ -1,5 +1,7 @@
 use super::*;
 
+pub(crate) const RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT: f64 = 0.75;
+
 #[cfg(test)]
 pub(crate) fn choose_pixel_potrace_point_set(
     path: &TracePath,
@@ -255,7 +257,7 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
             bestpolygon_area_alpha_pixel_potrace_segments_for_points_with_vertex_adjustment(
                 &path.points,
                 opt_tolerance,
-                1.0,
+                RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT,
             )
         {
             if pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
