@@ -1057,6 +1057,17 @@ pub(crate) fn choose_pixel_potrace_segments(
         }
 
         if !preserve_primitive {
+            if let Some(ring_sector) =
+                fit_closed_moderate_gap_annular_sector_potrace_segments(&path.points, canvas_size)
+            {
+                if let Some(first) = ring_sector.first() {
+                    best = (first.start(), ring_sector);
+                    preserve_primitive = true;
+                }
+            }
+        }
+
+        if !preserve_primitive {
             if let Some(annular_sector) =
                 fit_closed_annular_sector_potrace_segments(&path.points, canvas_size)
             {

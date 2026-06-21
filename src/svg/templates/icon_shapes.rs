@@ -1,6 +1,7 @@
 use super::*;
 
 mod annular_sector;
+mod annular_sector_paths;
 mod chevron;
 mod chevron_paths;
 mod h_shape;

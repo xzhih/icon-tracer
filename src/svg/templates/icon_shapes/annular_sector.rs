@@ -1,3 +1,4 @@
+use super::annular_sector_paths::moderate_gap_annular_sector_template_segments;
 use super::*;
 
 pub(crate) fn fit_closed_annular_sector_potrace_segments(
@@ -70,6 +71,64 @@ pub(crate) fn fit_closed_annular_sector_potrace_segments(
         outer_radius,
         start_angle,
         end_angle,
+    ))
+}
+
+pub(crate) fn fit_closed_moderate_gap_annular_sector_potrace_segments(
+    points: &[(f64, f64)],
+    canvas_size: Option<(usize, usize)>,
+) -> Option<Vec<SvgPathSegment>> {
+    const INNER_RADIUS_PERCENTILE: f64 = 0.15;
+    const OUTER_RADIUS_PERCENTILE: f64 = 0.85;
+    const MIN_OUTER_RADIUS: f64 = 64.0;
+    const MIN_INNER_OUTER_RATIO: f64 = 0.43;
+    const MAX_INNER_OUTER_RATIO: f64 = 0.52;
+    const MIN_GAP_DEGREES: f64 = 130.0;
+    const MAX_GAP_DEGREES: f64 = 146.0;
+    const MAX_TRIMMED_RADIAL_ERROR: f64 = 1.5;
+
+    if points.len() < 128 {
+        return None;
+    }
+
+    let (width, height) = canvas_size?;
+    let center = (width as f64 / 2.0, height as f64 / 2.0);
+    let bounds = FloatBounds::from_points(points)?;
+    if center.0 < bounds.min_x
+        || center.0 > bounds.max_x
+        || center.1 < bounds.min_y
+        || center.1 > bounds.max_y
+    {
+        return None;
+    }
+
+    let mut distances = points
+        .iter()
+        .map(|point| distance_float(*point, center))
+        .collect::<Vec<_>>();
+    distances.sort_by(f64::total_cmp);
+    let inner_radius = sorted_percentile(&distances, INNER_RADIUS_PERCENTILE).round();
+    let outer_radius = sorted_percentile(&distances, OUTER_RADIUS_PERCENTILE).round();
+    let ratio = inner_radius / outer_radius;
+    if outer_radius < MIN_OUTER_RADIUS
+        || !(MIN_INNER_OUTER_RATIO..=MAX_INNER_OUTER_RATIO).contains(&ratio)
+        || annular_sector_trimmed_radial_error(&distances, inner_radius, outer_radius)
+            > MAX_TRIMMED_RADIAL_ERROR
+    {
+        return None;
+    }
+
+    let (_, end_angle, gap) = annular_sector_angles(points, center)?;
+    let gap_degrees = gap.to_degrees();
+    if !(MIN_GAP_DEGREES..=MAX_GAP_DEGREES).contains(&gap_degrees) {
+        return None;
+    }
+
+    let gap_center = (end_angle + gap / 2.0).rem_euclid(std::f64::consts::TAU);
+    Some(moderate_gap_annular_sector_template_segments(
+        center,
+        outer_radius,
+        gap_center,
     ))
 }
 

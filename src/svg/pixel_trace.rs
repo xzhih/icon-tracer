@@ -128,6 +128,15 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
         }
     }
 
+    if let Some(ring_sector) =
+        fit_closed_moderate_gap_annular_sector_potrace_segments(&path.points, canvas_size)
+    {
+        if let Some(first) = ring_sector.first() {
+            best = (first.start(), ring_sector);
+            best_is_base = false;
+        }
+    }
+
     if has_sibling_paths {
         if opt_tolerance < PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE {
             if let Some(candidate) = pixel_potrace_segments_for_points(
