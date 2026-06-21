@@ -535,6 +535,81 @@ fn pixel_diagonal_capsule_rejects_compact_candidate_when_too_expensive() {
     ));
 }
 
+#[test]
+fn pixel_low_angle_diagonal_capsule_can_use_tiny_fine_rescue() {
+    let bitmap = capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce selected candidate");
+    let fine = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        PIXEL_POTRACE_FINE_OPT_TOLERANCE,
+        canvas_size,
+        false,
+    )
+    .expect("fixture should produce fine candidate");
+
+    assert_eq!(
+        compact_svg_path_data_from_segments(selected.0, &selected.1),
+        compact_svg_path_data_from_segments(fine.0, &fine.1)
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 120
+    );
+    assert!(pixel_potrace_candidate_boundary_rms_error(path, &selected) <= 0.545);
+}
+
+#[test]
+fn pixel_low_angle_diagonal_capsule_rejects_tiny_fine_canaries() {
+    let fixtures = [
+        capsule_bitmap((42.0, 188.0), (204.0, 92.0), 24.0),
+        capsule_bitmap((38.0, 190.0), (164.0, 54.0), 22.0),
+        capsule_bitmap((40.0, 78.0), (210.0, 92.0), 21.0),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+            .expect("fixture should produce selected candidate");
+        let fine = pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            PIXEL_POTRACE_FINE_OPT_TOLERANCE,
+            canvas_size,
+            false,
+        )
+        .expect("fixture should produce fine candidate");
+
+        assert!(!pixel_potrace_diagonal_capsule_fine_candidate_is_better(
+            path,
+            canvas_size,
+            &fine,
+            &selected,
+        ));
+    }
+}
+
 fn capsule_bitmap(start: (f64, f64), end: (f64, f64), half_width: f64) -> Bitmap {
     const CANVAS: usize = 256;
     let pixels = (0..CANVAS)

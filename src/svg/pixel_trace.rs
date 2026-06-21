@@ -181,7 +181,14 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
             canvas_size,
             has_holes,
         ) {
-            if pixel_potrace_fine_candidate_is_better(path, canvas_size, &candidate, &best) {
+            if pixel_potrace_fine_candidate_is_better(path, canvas_size, &candidate, &best)
+                || pixel_potrace_diagonal_capsule_fine_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                )
+            {
                 best = candidate;
             }
         }
