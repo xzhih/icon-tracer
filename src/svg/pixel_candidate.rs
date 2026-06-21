@@ -434,7 +434,9 @@ pub(crate) fn pixel_potrace_quadratic_vertex_candidate_is_better(
             );
         }
 
-        return false;
+        return pixel_potrace_quadratic_polygon_candidate_is_better(
+            path, width, height, candidate, best,
+        );
     }
 
     let segment_growth = candidate.1.len().saturating_sub(best.1.len());

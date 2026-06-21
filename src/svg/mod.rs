@@ -1,6 +1,7 @@
 mod cubic;
 mod path_data;
 mod pixel_candidate;
+mod pixel_candidate_polygon;
 mod pixel_trace;
 mod potrace_bestpolygon;
 mod potrace_cleanup;
@@ -12,6 +13,7 @@ mod templates;
 pub(crate) use cubic::*;
 pub(crate) use path_data::*;
 pub(crate) use pixel_candidate::*;
+pub(crate) use pixel_candidate_polygon::*;
 pub(crate) use pixel_trace::*;
 pub(crate) use potrace_bestpolygon::*;
 pub(crate) use potrace_cleanup::*;
