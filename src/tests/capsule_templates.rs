@@ -661,7 +661,7 @@ fn pixel_low_angle_diagonal_capsule_rejects_tiny_fine_canaries() {
 }
 
 #[test]
-fn pixel_diagonal_capsule_can_accept_small_best_area_rescue() {
+fn pixel_gentle_angle_diagonal_capsule_uses_potrace_template() {
     let bitmap = capsule_bitmap((42.0, 104.0), (218.0, 154.0), 16.0);
     let traced = trace_bitmap(
         &bitmap,
@@ -678,9 +678,20 @@ fn pixel_diagonal_capsule_can_accept_small_best_area_rescue() {
         .expect("fixture should produce base candidate");
     let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce best-area candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a gentle-angle diagonal capsule template");
+    let primitive_candidate = (primitive[0].start(), primitive);
 
+    assert_eq!(primitive_candidate.1.len(), 7);
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(base.0, &base.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
     assert!(
-        pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
+        !pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
             path,
             canvas_size,
             &best_area,
@@ -692,7 +703,13 @@ fn pixel_diagonal_capsule_can_accept_small_best_area_rescue() {
         .expect("fixture should produce selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 180
     );
 }
 

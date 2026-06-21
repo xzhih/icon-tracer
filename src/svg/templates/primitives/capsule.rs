@@ -1,6 +1,7 @@
 use crate::svg::*;
 
 use super::capsule_templates::{
+    gentle_angle_diagonal_capsule_segments, gentle_angle_diagonal_capsule_template_is_preferred,
     low_angle_diagonal_capsule_segments, low_angle_diagonal_capsule_template_is_preferred,
     medium_angle_diagonal_capsule_segments, medium_angle_diagonal_capsule_template_is_preferred,
     shallow_angle_diagonal_capsule_segments, shallow_angle_diagonal_capsule_template_is_preferred,
@@ -454,6 +455,10 @@ pub(crate) fn diagonal_capsule_segments(
 ) -> Vec<SvgPathSegment> {
     if shallow_angle_diagonal_capsule_template_is_preferred(axis, radius) {
         return shallow_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
+    }
+
+    if gentle_angle_diagonal_capsule_template_is_preferred(axis, radius) {
+        return gentle_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
     }
 
     if low_angle_diagonal_capsule_template_is_preferred(axis, radius) {
