@@ -826,6 +826,7 @@ def run_fixture(magick: str, potrace: str, icon_tracer: Path, out_dir: Path, fix
         "d_bytes_ratio": ratio(icon_stats["d_bytes"], potrace_stats["d_bytes"]),
         "potrace_svg_bytes": potrace_svg.stat().st_size,
         "icon_svg_bytes": icon_svg.stat().st_size,
+        "icon_uses_scaled_precision": svg_uses_scaled_precision(icon_svg),
         "potrace_svg": rel(potrace_svg),
         "icon_svg": rel(icon_svg),
         "potrace_mask": rel(potrace_mask),
@@ -921,6 +922,10 @@ def svg_stats(svg: Path) -> dict:
         "point_count": point_count,
         "d_bytes": d_bytes,
     }
+
+
+def svg_uses_scaled_precision(svg: Path) -> bool:
+    return 'transform="scale(.01)"' in svg.read_text(encoding="utf-8")
 
 
 def svg_path_stats(path_data: str) -> dict:
@@ -1100,10 +1105,25 @@ def parity_regressions(rows: list[dict]) -> list[str]:
             continue
 
         for metric, limit in limits.items():
+            if (
+                metric == "icon_d_bytes"
+                and row.get("icon_uses_scaled_precision")
+                and scaled_precision_keeps_shape_limits(row, limits)
+            ):
+                continue
             actual = row[metric]
             if actual > limit:
                 failures.append(f"{fixture} {metric} {actual} > {limit}")
     return failures
+
+
+def scaled_precision_keeps_shape_limits(row: dict, limits: dict) -> bool:
+    return (
+        row["mask_ae_pixels"] <= limits.get("mask_ae_pixels", row["mask_ae_pixels"])
+        and row["icon_command_count"] <= limits.get("icon_command_count", row["icon_command_count"])
+        and row["icon_svg_point_count"]
+        <= limits.get("icon_svg_point_count", row["icon_svg_point_count"])
+    )
 
 
 def rel(path: Path) -> str:

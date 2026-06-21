@@ -190,19 +190,27 @@ impl TracedBitmap {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let preserve_fractional_precision = options.pixel_potrace
-            && self.paths.len() == 1
-            && self.paths.iter().any(|path| {
-                svg::pixel_potrace_path_prefers_fractional_precision(
-                    path,
-                    Some((self.width, self.height)),
-                )
-            });
+        let precision = if options.pixel_potrace {
+            self.paths
+                .iter()
+                .map(|path| {
+                    svg::pixel_potrace_path_precision_preference(
+                        path,
+                        Some((self.width, self.height)),
+                        has_holes,
+                        has_sibling_paths,
+                        options.opt_tolerance.max(0.0),
+                    )
+                })
+                .fold(svg::SvgPathPrecision::Compact, svg::SvgPathPrecision::max)
+        } else {
+            svg::SvgPathPrecision::Compact
+        };
         let path = svg::svg_path_element_with_precision(
             &path_data,
             options.pixel_potrace,
             self.height,
-            preserve_fractional_precision,
+            precision,
         );
 
         format!(

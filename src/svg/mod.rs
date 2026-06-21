@@ -22,20 +22,44 @@ pub(crate) use templates::*;
 
 use crate::{CurveMode, SvgRenderOptions, TracePath};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SvgPathPrecision {
+    Compact,
+    PreserveFractional,
+    ForceScaled,
+}
+
+impl SvgPathPrecision {
+    pub(crate) fn max(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::ForceScaled, _) | (_, Self::ForceScaled) => Self::ForceScaled,
+            (Self::PreserveFractional, _) | (_, Self::PreserveFractional) => {
+                Self::PreserveFractional
+            }
+            (Self::Compact, Self::Compact) => Self::Compact,
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn svg_path_element(
     path_data: &str,
     allow_scaled_potrace_path: bool,
     canvas_height: usize,
 ) -> String {
-    svg_path_element_with_precision(path_data, allow_scaled_potrace_path, canvas_height, false)
+    svg_path_element_with_precision(
+        path_data,
+        allow_scaled_potrace_path,
+        canvas_height,
+        SvgPathPrecision::Compact,
+    )
 }
 
 pub(crate) fn svg_path_element_with_precision(
     path_data: &str,
     allow_scaled_potrace_path: bool,
     canvas_height: usize,
-    preserve_fractional_precision: bool,
+    precision: SvgPathPrecision,
 ) -> String {
     let plain = format!(r#"<path fill="black" fill-rule="evenodd" d="{path_data}"/>"#);
     if !allow_scaled_potrace_path {
@@ -49,13 +73,13 @@ pub(crate) fn svg_path_element_with_precision(
             r#"<path fill="black" fill-rule="evenodd" transform="scale(.01)" d="{scaled_path_data}"/>"#
         );
 
-        if scaled.len() < best.len() {
+        if precision == SvgPathPrecision::ForceScaled || scaled.len() < best.len() {
             best = scaled;
             best_path_data_len = scaled_path_data.len();
         }
     }
 
-    if !preserve_fractional_precision && !path_data_has_arc_commands(path_data) {
+    if precision == SvgPathPrecision::Compact && !path_data_has_arc_commands(path_data) {
         if let Some(one_decimal_path_data) = one_decimal_svg_path_data(path_data) {
             let one_decimal =
                 format!(r#"<path fill="black" fill-rule="evenodd" d="{one_decimal_path_data}"/>"#);
@@ -102,15 +126,105 @@ pub(crate) fn svg_path_element_with_precision(
     best
 }
 
-pub(crate) fn pixel_potrace_path_prefers_fractional_precision(
+pub(crate) fn pixel_potrace_path_precision_preference(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
-) -> bool {
+    has_holes: bool,
+    has_sibling_paths: bool,
+    opt_tolerance: f64,
+) -> SvgPathPrecision {
+    const MIN_TENTH_QUANTIZATION_REGRESSION_PIXELS: usize = 8;
+
     let Some((width, height)) = canvas_size else {
-        return false;
+        return SvgPathPrecision::Compact;
     };
 
-    pixel_potrace_points_prefer_fractional_precision_annular_sector(&path.points, width, height)
+    if pixel_potrace_points_prefer_fractional_precision_annular_sector(&path.points, width, height)
+    {
+        return SvgPathPrecision::PreserveFractional;
+    }
+
+    let Some(candidate) = choose_pixel_potrace_point_set_with_context(
+        path,
+        opt_tolerance,
+        canvas_size,
+        has_holes,
+        has_sibling_paths,
+    ) else {
+        return SvgPathPrecision::Compact;
+    };
+    if pixel_potrace_candidate_prefers_scaled_precision(&candidate) {
+        return SvgPathPrecision::ForceScaled;
+    }
+
+    let tenth = quantize_potrace_candidate_to_tenth(&candidate);
+    let candidate_error = pixel_potrace_candidate_mask_error(path, &candidate, width, height);
+    let tenth_error = pixel_potrace_candidate_mask_error(path, &tenth, width, height);
+
+    if candidate_error.saturating_add(MIN_TENTH_QUANTIZATION_REGRESSION_PIXELS) <= tenth_error {
+        SvgPathPrecision::ForceScaled
+    } else {
+        SvgPathPrecision::Compact
+    }
+}
+
+fn pixel_potrace_candidate_prefers_scaled_precision(
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MIN_COMPLEX_CUBIC_COUNT: usize = 14;
+    const MIN_COMPLEX_LINE_COUNT: usize = 16;
+
+    let stats = scaled_precision_stats(candidate);
+
+    stats.has_tenth_residue
+        && (stats.cubic_count >= MIN_COMPLEX_CUBIC_COUNT
+            || stats.line_count >= MIN_COMPLEX_LINE_COUNT)
+}
+
+struct ScaledPrecisionStats {
+    has_tenth_residue: bool,
+    cubic_count: usize,
+    line_count: usize,
+}
+
+fn scaled_precision_stats(candidate: &((f64, f64), Vec<SvgPathSegment>)) -> ScaledPrecisionStats {
+    let mut stats = ScaledPrecisionStats {
+        has_tenth_residue: false,
+        cubic_count: 0,
+        line_count: 0,
+    };
+
+    add_point_scaled_precision_stats(&mut stats, candidate.0);
+    for segment in &candidate.1 {
+        match *segment {
+            SvgPathSegment::Line { end, .. } => {
+                stats.line_count += 1;
+                add_point_scaled_precision_stats(&mut stats, end);
+            }
+            SvgPathSegment::Cubic(cubic) => {
+                stats.cubic_count += 1;
+                add_point_scaled_precision_stats(&mut stats, cubic.control1);
+                add_point_scaled_precision_stats(&mut stats, cubic.control2);
+                add_point_scaled_precision_stats(&mut stats, cubic.end);
+            }
+        }
+    }
+
+    stats
+}
+
+fn add_point_scaled_precision_stats(stats: &mut ScaledPrecisionStats, point: (f64, f64)) {
+    add_coordinate_scaled_precision_stats(stats, point.0);
+    add_coordinate_scaled_precision_stats(stats, point.1);
+}
+
+fn add_coordinate_scaled_precision_stats(stats: &mut ScaledPrecisionStats, value: f64) {
+    const EPSILON: f64 = 1.0e-3;
+
+    let residue = (value * 100.0 - (value * 10.0).round() * 10.0).abs();
+    if residue > EPSILON {
+        stats.has_tenth_residue = true;
+    }
 }
 
 pub(crate) fn path_data_has_arc_commands(path_data: &str) -> bool {

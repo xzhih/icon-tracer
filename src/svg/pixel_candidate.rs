@@ -1075,7 +1075,7 @@ pub(crate) fn pixel_potrace_diagonal_capsule_compact_candidate_is_better(
     pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, primitive_boundary_error)
 }
 
-fn quantize_potrace_candidate_to_tenth(
+pub(crate) fn quantize_potrace_candidate_to_tenth(
     candidate: &((f64, f64), Vec<SvgPathSegment>),
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
     (

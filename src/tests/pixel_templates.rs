@@ -212,6 +212,53 @@ fn pixel_ring_primitive_uses_potrace_hole_template() {
 }
 
 #[test]
+fn pixel_complex_residue_union_uses_scaled_precision() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (106.0, 42.0, 150.0, 212.0, 17.0),
+        (58.0, 64.0, 198.0, 112.0, 20.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: false,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains(r#"transform="scale(.01)""#), "{svg}");
+    assert!(!svg.contains("scale(.1 -.1)"), "{svg}");
+}
+
+#[test]
+fn pixel_diagonal_bar_keeps_y_flipped_integer_precision() {
+    let bitmap = parity_diagonal_bar_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: false,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(!svg.contains(r#"transform="scale(.01)""#), "{svg}");
+}
+
+#[test]
 fn pixel_triangle_primitive_uses_potrace_like_segments() {
     let bitmap = parity_triangle_bitmap();
     let traced = trace_bitmap(
