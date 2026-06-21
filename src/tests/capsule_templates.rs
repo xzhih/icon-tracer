@@ -440,7 +440,7 @@ fn pixel_diagonal_capsule_blocks_small_low_angle_compact_replacement() {
 }
 
 #[test]
-fn pixel_low_angle_diagonal_capsule_uses_quadratic_vertex_rescue() {
+fn pixel_low_angle_diagonal_capsule_uses_potrace_template() {
     let bitmap = capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0);
     let traced = trace_bitmap(
         &bitmap,
@@ -460,12 +460,6 @@ fn pixel_low_angle_diagonal_capsule_uses_quadratic_vertex_rescue() {
     let primitive_candidate = (primitive[0].start(), primitive);
     let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce quadratic candidate");
-    let primitive_error = pixel_potrace_candidate_mask_error(
-        path,
-        &primitive_candidate,
-        bitmap.width(),
-        bitmap.height(),
-    );
     let final_error =
         pixel_potrace_candidate_mask_error(path, &final_candidate, bitmap.width(), bitmap.height());
     let final_data = compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1);
@@ -476,14 +470,20 @@ fn pixel_low_angle_diagonal_capsule_uses_quadratic_vertex_rescue() {
         "{:?}",
         primitive_candidate.1
     );
-    assert!(final_error < primitive_error, "{final_data}");
     assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert_ne!(
         compact_svg_path_data_from_segments_without_arcs(final_candidate.0, &final_candidate.1),
         compact_svg_path_data_from_segments_without_arcs(quadratic.0, &quadratic.1)
     );
-    assert!(final_error <= 75, "{final_data}");
-    assert!(compact_path_command_count(&final_data) <= 6, "{final_data}");
-    assert!(final_data.len() <= 260, "{final_data}");
+    assert!(final_error <= 360, "{final_data}");
+    assert!(compact_path_command_count(&final_data) <= 8, "{final_data}");
+    assert!(final_data.len() <= 220, "{final_data}");
 }
 
 #[test]
@@ -576,7 +576,7 @@ fn pixel_diagonal_capsule_rejects_compact_candidate_when_too_expensive() {
 }
 
 #[test]
-fn pixel_low_angle_diagonal_capsule_can_use_tiny_fine_rescue() {
+fn pixel_low_angle_diagonal_capsule_keeps_template_under_fine_tolerance() {
     let bitmap = capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0);
     let traced = trace_bitmap(
         &bitmap,
@@ -600,17 +600,24 @@ fn pixel_low_angle_diagonal_capsule_can_use_tiny_fine_rescue() {
     )
     .expect("fixture should produce fine candidate");
 
-    let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
-        .expect("fixture should produce quadratic candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let primitive_candidate = (primitive[0].start(), primitive);
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(quadratic.0, &quadratic.1)
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(fine.0, &fine.1)
     );
     assert!(
-        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
-            < pixel_potrace_candidate_mask_error(path, &fine, bitmap.width(), bitmap.height())
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 360
     );
-    assert!(pixel_potrace_candidate_boundary_rms_error(path, &selected) <= 0.47);
+    assert!(pixel_potrace_candidate_boundary_rms_error(path, &selected) <= 0.9);
 }
 
 #[test]

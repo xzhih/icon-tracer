@@ -27,7 +27,7 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
 }
 
 #[test]
-fn quadratic_vertex_candidate_accepts_low_angle_capsule_rescue() {
+fn quadratic_vertex_candidate_defers_to_low_angle_capsule_template() {
     let bitmap = local_capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0);
     let path = trace_first_path(&bitmap);
     let canvas_size = Some((bitmap.width(), bitmap.height()));
@@ -41,8 +41,19 @@ fn quadratic_vertex_candidate_accepts_low_angle_capsule_rescue() {
     .expect("fixture should produce fine candidate");
     let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce quadratic candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a low-angle diagonal capsule template");
+    let primitive_candidate = (primitive[0].start(), primitive);
 
-    assert!(pixel_potrace_quadratic_vertex_candidate_is_better(
+    assert_eq!(primitive_candidate.1.len(), 6);
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(best.0, &best.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert!(!pixel_potrace_quadratic_vertex_candidate_is_better(
         &path,
         canvas_size,
         &quadratic,
@@ -51,9 +62,12 @@ fn quadratic_vertex_candidate_accepts_low_angle_capsule_rescue() {
 
     let selected = choose_pixel_potrace_point_set(&path, 0.2, canvas_size, false)
         .expect("fixture should produce selected candidate");
-    assert!(
-        pixel_potrace_candidate_mask_error(&path, &selected, bitmap.width(), bitmap.height())
-            <= pixel_potrace_candidate_mask_error(&path, &best, bitmap.width(), bitmap.height())
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
     );
 }
 

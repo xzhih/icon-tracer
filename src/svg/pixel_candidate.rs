@@ -417,6 +417,7 @@ pub(crate) fn pixel_potrace_quadratic_vertex_candidate_is_better(
     const MAX_SEGMENT_GROWTH: usize = 8;
     const MAX_EXTRA_D_BYTES: usize = 96;
     const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
+    const MAX_LOW_ANGLE_PRIMITIVE_MASK_PIXELS: usize = 360;
     const MAX_EXTRA_BOUNDARY_FOR_MASK_RESCUE: f64 = 0.02;
 
     let Some((width, height)) = canvas_size else {
@@ -453,6 +454,20 @@ pub(crate) fn pixel_potrace_quadratic_vertex_candidate_is_better(
 
     let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
     let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if best.1.len() == 6
+        && best
+            .1
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+        && candidate
+            .1
+            .iter()
+            .any(|segment| matches!(segment, SvgPathSegment::Line { .. }))
+        && best_error <= MAX_LOW_ANGLE_PRIMITIVE_MASK_PIXELS
+    {
+        return false;
+    }
+
     let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
     let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
 
