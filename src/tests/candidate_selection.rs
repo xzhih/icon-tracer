@@ -222,6 +222,140 @@ fn sibling_paths_can_accept_dominating_strict_candidate() {
 }
 
 #[test]
+fn sibling_paths_can_accept_relaxed_candidate_when_it_simplifies_components() {
+    let fixtures = [
+        rounded_rect_union_bitmap(&[
+            (48.0, 45.0, 99.0, 127.0, 25.0),
+            (50.0, 100.0, 94.0, 178.0, 11.0),
+            (147.0, 143.0, 183.0, 186.0, 9.0),
+        ]),
+        rounded_rect_union_bitmap(&[
+            (157.0, 125.0, 200.0, 191.0, 18.0),
+            (115.0, 150.0, 155.0, 189.0, 12.0),
+        ]),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        assert_eq!(traced.paths.len(), 2);
+
+        let mut accepted_relaxed_component = false;
+        let mut base_error = 0usize;
+        let mut selected_error = 0usize;
+        let mut base_segments = 0usize;
+        let mut selected_segments = 0usize;
+        let mut base_bytes = 0usize;
+        let mut selected_bytes = 0usize;
+        for path in &traced.paths {
+            let selected = choose_pixel_potrace_point_set_with_context(
+                path,
+                0.2,
+                Some((bitmap.width(), bitmap.height())),
+                false,
+                true,
+            )
+            .expect("fixture path should produce sibling-aware candidate");
+            let base = pixel_potrace_segments_for_points(
+                path,
+                &path.points,
+                0.2,
+                Some((bitmap.width(), bitmap.height())),
+                false,
+            )
+            .expect("fixture path should produce base candidate");
+            let relaxed = pixel_potrace_segments_for_points(
+                path,
+                &path.points,
+                PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE,
+                Some((bitmap.width(), bitmap.height())),
+                false,
+            )
+            .expect("fixture path should produce relaxed candidate");
+
+            base_error +=
+                pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height());
+            selected_error += pixel_potrace_candidate_mask_error(
+                path,
+                &selected,
+                bitmap.width(),
+                bitmap.height(),
+            );
+            base_segments += base.1.len();
+            selected_segments += selected.1.len();
+            base_bytes += compact_svg_path_data_from_segments_without_arcs(base.0, &base.1).len();
+            selected_bytes +=
+                compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1).len();
+
+            if pixel_potrace_sibling_relaxed_candidate_is_better(
+                path,
+                Some((bitmap.width(), bitmap.height())),
+                &relaxed,
+                &base,
+            ) {
+                accepted_relaxed_component = true;
+            }
+        }
+
+        assert!(accepted_relaxed_component);
+        assert!(selected_segments.saturating_add(4) <= base_segments);
+        assert!(selected_bytes < base_bytes);
+        assert!(selected_error <= base_error);
+    }
+}
+
+#[test]
+fn sibling_paths_reject_relaxed_candidate_when_potrace_parity_regresses() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (160.0, 65.0, 206.0, 205.0, 23.0),
+        (46.0, 54.0, 139.0, 125.0, 11.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    assert_eq!(traced.paths.len(), 2);
+
+    for path in &traced.paths {
+        let base = pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            0.2,
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("fixture path should produce base candidate");
+        let relaxed = pixel_potrace_segments_for_points(
+            path,
+            &path.points,
+            PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE,
+            Some((bitmap.width(), bitmap.height())),
+            false,
+        )
+        .expect("fixture path should produce relaxed candidate");
+
+        assert!(!pixel_potrace_sibling_relaxed_candidate_is_better(
+            path,
+            Some((bitmap.width(), bitmap.height())),
+            &relaxed,
+            &base,
+        ));
+    }
+}
+
+#[test]
 fn coverage_threshold_rasterizer_matches_integer_square_pixels() {
     let path = TracePath {
         is_hole: false,
