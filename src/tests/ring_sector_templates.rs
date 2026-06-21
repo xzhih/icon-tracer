@@ -35,6 +35,28 @@ fn pixel_ring_sector_uses_annular_sector_fallback() {
 }
 
 #[test]
+fn pixel_ring_sector_svg_preserves_fractional_precision() {
+    let bitmap = ring_sector_bitmap(70.0, 290.0, 38.0, 80.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains(r#"transform="scale(.01)""#), "{svg}");
+    assert!(!svg.contains("scale(.1 -.1)"), "{svg}");
+}
+
+#[test]
 fn pixel_thin_ring_sector_rejects_annular_sector_fallback() {
     let bitmap = ring_sector_bitmap(120.0, 420.0, 48.0, 82.0);
     let traced = trace_bitmap(

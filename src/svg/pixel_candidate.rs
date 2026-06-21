@@ -764,6 +764,30 @@ fn pixel_potrace_points_are_detailed_annular_sector(
     measurements.inner_radius / measurements.outer_radius <= MAX_INNER_TO_OUTER_RATIO
 }
 
+pub(crate) fn pixel_potrace_points_prefer_fractional_precision_annular_sector(
+    points: &[(f64, f64)],
+    width: usize,
+    height: usize,
+) -> bool {
+    const MIN_POINTS: usize = 256;
+    const MIN_GAP_DEGREES: f64 = 55.0;
+
+    if points.len() < MIN_POINTS {
+        return false;
+    }
+
+    if !pixel_potrace_points_are_detailed_annular_sector(points, width, height) {
+        return false;
+    }
+
+    let center = (width as f64 / 2.0, height as f64 / 2.0);
+    let Some((_, _, gap_radians)) = annular_sector_angles(points, center) else {
+        return false;
+    };
+
+    gap_radians.to_degrees() >= MIN_GAP_DEGREES
+}
+
 fn pixel_potrace_points_are_thin_detailed_annular_sector(
     points: &[(f64, f64)],
     width: usize,

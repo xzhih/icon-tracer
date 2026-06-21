@@ -190,7 +190,20 @@ impl TracedBitmap {
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let path = svg::svg_path_element(&path_data, options.pixel_potrace, self.height);
+        let preserve_fractional_precision = options.pixel_potrace
+            && self.paths.len() == 1
+            && self.paths.iter().any(|path| {
+                svg::pixel_potrace_path_prefers_fractional_precision(
+                    path,
+                    Some((self.width, self.height)),
+                )
+            });
+        let path = svg::svg_path_element_with_precision(
+            &path_data,
+            options.pixel_potrace,
+            self.height,
+            preserve_fractional_precision,
+        );
 
         format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {} {}">{}</svg>"#,

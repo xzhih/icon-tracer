@@ -552,6 +552,12 @@ pub(crate) fn path_data_has_quadratic_commands(path_data: &str) -> bool {
     path_data.bytes().any(|byte| matches!(byte, b'Q' | b'q'))
 }
 
+pub(crate) fn path_data_has_bezier_commands(path_data: &str) -> bool {
+    path_data
+        .bytes()
+        .any(|byte| matches!(byte, b'C' | b'c' | b'S' | b's' | b'Q' | b'q' | b'T' | b't'))
+}
+
 pub(crate) fn format_one_decimal_half_away_from_zero(value: f64) -> String {
     let scaled = value * 10.0;
     let rounded = if scaled >= 0.0 {

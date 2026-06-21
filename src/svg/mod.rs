@@ -22,10 +22,20 @@ pub(crate) use templates::*;
 
 use crate::{CurveMode, SvgRenderOptions, TracePath};
 
+#[cfg(test)]
 pub(crate) fn svg_path_element(
     path_data: &str,
     allow_scaled_potrace_path: bool,
     canvas_height: usize,
+) -> String {
+    svg_path_element_with_precision(path_data, allow_scaled_potrace_path, canvas_height, false)
+}
+
+pub(crate) fn svg_path_element_with_precision(
+    path_data: &str,
+    allow_scaled_potrace_path: bool,
+    canvas_height: usize,
+    preserve_fractional_precision: bool,
 ) -> String {
     let plain = format!(r#"<path fill="black" fill-rule="evenodd" d="{path_data}"/>"#);
     if !allow_scaled_potrace_path {
@@ -45,7 +55,7 @@ pub(crate) fn svg_path_element(
         }
     }
 
-    if !path_data_has_arc_commands(path_data) {
+    if !preserve_fractional_precision && !path_data_has_arc_commands(path_data) {
         if let Some(one_decimal_path_data) = one_decimal_svg_path_data(path_data) {
             let one_decimal =
                 format!(r#"<path fill="black" fill-rule="evenodd" d="{one_decimal_path_data}"/>"#);
@@ -68,14 +78,21 @@ pub(crate) fn svg_path_element(
                 }
             }
 
-            if let Some(potrace_path_data) =
-                potrace_y_flipped_integer_svg_path_data(&one_decimal_path_data, canvas_height, 10.0)
-            {
+            let potrace_path_data = potrace_y_flipped_integer_svg_path_data(
+                &one_decimal_path_data,
+                canvas_height,
+                10.0,
+            );
+            if let Some(potrace_path_data) = potrace_path_data {
                 let potrace_scaled = format!(
                     r#"<path fill="black" fill-rule="evenodd" transform="translate(0 {canvas_height}) scale(.1 -.1)" d="{potrace_path_data}"/>"#
                 );
 
-                if potrace_path_data.len() < best_path_data_len {
+                if pixel_potrace_y_flipped_integer_path_is_preferred(
+                    &one_decimal_path_data,
+                    potrace_path_data.len(),
+                    best_path_data_len,
+                ) {
                     best = potrace_scaled;
                 }
             }
@@ -85,8 +102,28 @@ pub(crate) fn svg_path_element(
     best
 }
 
+pub(crate) fn pixel_potrace_path_prefers_fractional_precision(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+) -> bool {
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    pixel_potrace_points_prefer_fractional_precision_annular_sector(&path.points, width, height)
+}
+
 pub(crate) fn path_data_has_arc_commands(path_data: &str) -> bool {
     path_data.bytes().any(|byte| matches!(byte, b'A' | b'a'))
+}
+
+fn pixel_potrace_y_flipped_integer_path_is_preferred(
+    one_decimal_path_data: &str,
+    potrace_path_data_len: usize,
+    best_path_data_len: usize,
+) -> bool {
+    potrace_path_data_len < best_path_data_len
+        || path_data_has_bezier_commands(one_decimal_path_data)
 }
 
 #[cfg(test)]

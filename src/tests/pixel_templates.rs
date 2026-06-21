@@ -859,6 +859,28 @@ fn pixel_c_shape_template_accepts_mirrored_and_rotated_orientations() {
 }
 
 #[test]
+fn pixel_c_shape_svg_keeps_potrace_scaled_precision() {
+    let bitmap = parity_c_shape_bitmap();
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.2,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let svg = traced.to_svg_with_render_options(SvgRenderOptions {
+        curve_mode: CurveMode::Potrace,
+        opt_tolerance: 0.2,
+        pixel_potrace: true,
+    });
+
+    assert!(svg.contains("translate(0 256) scale(.1 -.1)"), "{svg}");
+    assert!(!svg.contains(r#"transform="scale(.01)""#), "{svg}");
+}
+
+#[test]
 fn pixel_f_shape_template_matches_potrace_mask() {
     let bitmap = parity_f_shape_bitmap();
     let traced = trace_bitmap(
