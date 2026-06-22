@@ -720,6 +720,7 @@ pub(crate) fn simplify_collinear_float_points(points: &[(f64, f64)]) -> Vec<(f64
 pub(crate) fn pixel_potrace_points_match_protected_template(points: &[(f64, f64)]) -> bool {
     fit_closed_t_potrace_segments(points).is_some()
         || fit_closed_h_potrace_segments(points).is_some()
+        || diagonal_capsule_prefers_medium_low_template(points)
 }
 
 pub(crate) fn choose_pixel_potrace_segments(

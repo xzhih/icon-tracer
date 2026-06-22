@@ -487,6 +487,43 @@ fn pixel_low_angle_diagonal_capsule_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_medium_low_angle_diagonal_capsule_uses_potrace_template() {
+    let bitmap = capsule_bitmap((52.0, 64.0), (206.0, 184.0), 15.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let final_candidate =
+        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
+            .expect("fixture should produce a candidate");
+    let primitive = fit_closed_diagonal_capsule_potrace_segments(&path.points)
+        .expect("fixture should fit a diagonal capsule primitive");
+    let primitive_candidate = (primitive[0].start(), primitive);
+    let final_data = compact_svg_path_data_from_segments(final_candidate.0, &final_candidate.1);
+
+    assert!(diagonal_capsule_prefers_medium_low_template(&path.points));
+    assert!(!diagonal_capsule_allows_compact_replacement(&path.points));
+    assert_eq!(primitive_candidate.1.len(), 8, "{primitive_candidate:?}");
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(final_candidate.0, &final_candidate.1),
+        compact_svg_path_data_from_segments_without_arcs(
+            primitive_candidate.0,
+            &primitive_candidate.1
+        )
+    );
+    assert!(
+        compact_path_command_count(&final_data) <= 10,
+        "{final_data}"
+    );
+}
+
+#[test]
 fn pixel_shallow_angle_diagonal_capsule_uses_potrace_template() {
     let bitmap = capsule_bitmap((40.0, 78.0), (210.0, 92.0), 21.0);
     let traced = trace_bitmap(

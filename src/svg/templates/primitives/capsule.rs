@@ -5,8 +5,10 @@ use super::capsule_templates::{
     long_shallow_angle_diagonal_capsule_segments,
     long_shallow_angle_diagonal_capsule_template_is_preferred, low_angle_diagonal_capsule_segments,
     low_angle_diagonal_capsule_template_is_preferred, medium_angle_diagonal_capsule_segments,
-    medium_angle_diagonal_capsule_template_is_preferred, shallow_angle_diagonal_capsule_segments,
-    shallow_angle_diagonal_capsule_template_is_preferred,
+    medium_angle_diagonal_capsule_template_is_preferred,
+    medium_low_angle_diagonal_capsule_segments,
+    medium_low_angle_diagonal_capsule_template_is_preferred,
+    shallow_angle_diagonal_capsule_segments, shallow_angle_diagonal_capsule_template_is_preferred,
 };
 use super::{normalized_rect_cubic, normalized_rect_line};
 
@@ -101,6 +103,25 @@ pub(crate) fn capsule_template_boundary_rms_error(
 pub(crate) fn fit_closed_diagonal_capsule_potrace_segments(
     points: &[(f64, f64)],
 ) -> Option<Vec<SvgPathSegment>> {
+    let fit = fit_diagonal_capsule(points)?;
+
+    Some(diagonal_capsule_segments(
+        fit.origin,
+        fit.axis,
+        fit.half_length,
+        fit.radius,
+    ))
+}
+
+#[derive(Clone, Copy)]
+struct DiagonalCapsuleFit {
+    origin: (f64, f64),
+    axis: (f64, f64),
+    half_length: f64,
+    radius: f64,
+}
+
+fn fit_diagonal_capsule(points: &[(f64, f64)]) -> Option<DiagonalCapsuleFit> {
     const MIN_RADIUS: f64 = 8.0;
     const MIN_ASPECT_RATIO: f64 = 2.0;
     const AXIS_EPSILON: f64 = 0.06;
@@ -123,12 +144,21 @@ pub(crate) fn fit_closed_diagonal_capsule_potrace_segments(
         return None;
     }
 
-    Some(diagonal_capsule_segments(origin, axis, half_length, radius))
+    Some(DiagonalCapsuleFit {
+        origin,
+        axis,
+        half_length,
+        radius,
+    })
 }
 
 pub(crate) fn diagonal_capsule_allows_compact_replacement(points: &[(f64, f64)]) -> bool {
     const MIN_LOW_ANGLE_RADIUS: f64 = 18.0;
     const MIN_SMALL_RADIUS_ANGLE_DEGREES: f64 = 35.0;
+
+    if diagonal_capsule_prefers_medium_low_template(points) {
+        return false;
+    }
 
     let origin = arc_centroid(points);
     let Some(pca_axis) = principal_axis_for_points(points, origin) else {
@@ -142,6 +172,16 @@ pub(crate) fn diagonal_capsule_allows_compact_replacement(points: &[(f64, f64)])
     let angle = pca_axis.1.abs().atan2(pca_axis.0.abs()).to_degrees();
 
     radius >= MIN_LOW_ANGLE_RADIUS || angle >= MIN_SMALL_RADIUS_ANGLE_DEGREES
+}
+
+pub(crate) fn diagonal_capsule_prefers_medium_low_template(points: &[(f64, f64)]) -> bool {
+    fit_diagonal_capsule(points).is_some_and(|fit| {
+        medium_low_angle_diagonal_capsule_template_is_preferred(
+            fit.axis,
+            fit.half_length,
+            fit.radius,
+        )
+    })
 }
 
 pub(crate) fn principal_axis_for_points(
@@ -465,6 +505,10 @@ pub(crate) fn diagonal_capsule_segments(
 
     if gentle_angle_diagonal_capsule_template_is_preferred(axis, radius) {
         return gentle_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
+    }
+
+    if medium_low_angle_diagonal_capsule_template_is_preferred(axis, half_length, radius) {
+        return medium_low_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
     }
 
     if low_angle_diagonal_capsule_template_is_preferred(axis, radius) {
