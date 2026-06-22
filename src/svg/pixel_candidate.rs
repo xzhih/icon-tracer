@@ -302,13 +302,13 @@ pub(crate) fn pixel_potrace_diagonal_capsule_fine_candidate_is_better(
         return false;
     }
 
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
     if candidate.1.len() != best.1.len() {
         return false;
     }
 
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
     if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
         return false;
     }
@@ -322,6 +322,48 @@ pub(crate) fn pixel_potrace_diagonal_capsule_fine_candidate_is_better(
     let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
     let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
     candidate_boundary_error < best_boundary_error
+}
+
+pub(crate) fn pixel_potrace_diagonal_capsule_template_candidate_is_better(
+    path: &TracePath,
+    canvas_size: Option<(usize, usize)>,
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+    best: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MAX_EXTRA_MASK_PIXELS: usize = 280;
+    const MAX_BOUNDARY_ERROR: f64 = 0.75;
+
+    let Some((width, height)) = canvas_size else {
+        return false;
+    };
+
+    if !diagonal_capsule_prefers_thick_low_angle_template(&path.points) {
+        return false;
+    }
+
+    if candidate.1.len() != 8
+        || !candidate
+            .1
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
+    {
+        return false;
+    }
+
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    if candidate_bytes > best_bytes {
+        return false;
+    }
+
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    if candidate_error > best_error.saturating_add(MAX_EXTRA_MASK_PIXELS) {
+        return false;
+    }
+
+    pixel_potrace_candidate_boundary_rms_error(path, candidate) <= MAX_BOUNDARY_ERROR
 }
 
 pub(crate) fn pixel_potrace_diagonal_capsule_best_area_candidate_is_better(

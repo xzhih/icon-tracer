@@ -9,6 +9,8 @@ use super::capsule_templates::{
     medium_low_angle_diagonal_capsule_segments,
     medium_low_angle_diagonal_capsule_template_is_preferred,
     shallow_angle_diagonal_capsule_segments, shallow_angle_diagonal_capsule_template_is_preferred,
+    thick_low_angle_diagonal_capsule_segments,
+    thick_low_angle_diagonal_capsule_template_is_preferred,
 };
 use super::{normalized_rect_cubic, normalized_rect_line};
 
@@ -159,6 +161,9 @@ pub(crate) fn diagonal_capsule_allows_compact_replacement(points: &[(f64, f64)])
     if diagonal_capsule_prefers_medium_low_template(points) {
         return false;
     }
+    if diagonal_capsule_prefers_thick_low_angle_template(points) {
+        return false;
+    }
 
     let origin = arc_centroid(points);
     let Some(pca_axis) = principal_axis_for_points(points, origin) else {
@@ -177,6 +182,16 @@ pub(crate) fn diagonal_capsule_allows_compact_replacement(points: &[(f64, f64)])
 pub(crate) fn diagonal_capsule_prefers_medium_low_template(points: &[(f64, f64)]) -> bool {
     fit_diagonal_capsule(points).is_some_and(|fit| {
         medium_low_angle_diagonal_capsule_template_is_preferred(
+            fit.axis,
+            fit.half_length,
+            fit.radius,
+        )
+    })
+}
+
+pub(crate) fn diagonal_capsule_prefers_thick_low_angle_template(points: &[(f64, f64)]) -> bool {
+    fit_diagonal_capsule(points).is_some_and(|fit| {
+        thick_low_angle_diagonal_capsule_template_is_preferred(
             fit.axis,
             fit.half_length,
             fit.radius,
@@ -509,6 +524,10 @@ pub(crate) fn diagonal_capsule_segments(
 
     if medium_low_angle_diagonal_capsule_template_is_preferred(axis, half_length, radius) {
         return medium_low_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
+    }
+
+    if thick_low_angle_diagonal_capsule_template_is_preferred(axis, half_length, radius) {
+        return thick_low_angle_diagonal_capsule_segments(origin, axis, half_length, radius);
     }
 
     if low_angle_diagonal_capsule_template_is_preferred(axis, radius) {

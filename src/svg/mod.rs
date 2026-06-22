@@ -811,7 +811,12 @@ pub(crate) fn choose_pixel_potrace_segments(
                     {
                         best = compact_strict_candidate.clone();
                         preserve_primitive = true;
-                    } else if pixel_potrace_primitive_candidate_is_close_enough(
+                    } else if pixel_potrace_diagonal_capsule_template_candidate_is_better(
+                        path,
+                        canvas_size,
+                        &candidate,
+                        &best,
+                    ) || pixel_potrace_primitive_candidate_is_close_enough(
                         path,
                         canvas_size,
                         &candidate,
