@@ -203,6 +203,82 @@ fn bestpolygon_area_alpha_candidate_can_rescue_mask_better_unions() {
 }
 
 #[test]
+fn bestpolygon_area_alpha_candidate_can_accept_strict_area_improvement() {
+    let fixtures = [
+        rounded_rect_union_bitmap(&[
+            (84.0, 50.0, 203.0, 195.0, 12.0),
+            (74.0, 95.0, 116.0, 149.0, 18.0),
+            (98.0, 186.0, 159.0, 219.0, 10.0),
+        ]),
+        rounded_rect_union_bitmap(&[
+            (102.0, 162.0, 163.0, 219.0, 19.0),
+            (107.0, 156.0, 142.0, 191.0, 12.0),
+            (124.0, 93.0, 180.0, 213.0, 19.0),
+        ]),
+    ];
+
+    for bitmap in fixtures {
+        let traced = trace_bitmap(
+            &bitmap,
+            TraceOptions {
+                turd_size: 2,
+                opt_tolerance: 0.0,
+                contour_mode: ContourMode::Pixel,
+                preserve_collinear: true,
+            },
+        );
+        let path = traced.paths.first().expect("fixture should trace one path");
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+            .expect("fixture should produce selected candidate");
+        let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+            .expect("fixture should produce area-alpha candidate");
+        let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+            .expect("fixture should produce bestpolygon area-alpha candidate");
+
+        assert!(pixel_potrace_best_area_candidate_is_better(
+            path,
+            canvas_size,
+            &best_area,
+            &area,
+        ));
+        assert_eq!(
+            compact_svg_path_data_from_segments(selected.0, &selected.1),
+            compact_svg_path_data_from_segments(best_area.0, &best_area.1)
+        );
+        assert!(best_area.1.len() <= area.1.len());
+        assert!(
+            compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1).len()
+                <= compact_svg_path_data_from_segments_without_arcs(area.0, &area.1).len()
+        );
+        assert!(
+            pixel_potrace_candidate_mask_error(path, &best_area, bitmap.width(), bitmap.height())
+                < pixel_potrace_candidate_mask_error(path, &area, bitmap.width(), bitmap.height())
+        );
+        assert!(
+            pixel_potrace_candidate_boundary_rms_error(path, &best_area)
+                < pixel_potrace_candidate_boundary_rms_error(path, &area)
+        );
+        assert!(
+            pixel_potrace_candidate_foreground_delta(
+                path,
+                &best_area,
+                bitmap.width(),
+                bitmap.height()
+            )
+            .unsigned_abs()
+                < pixel_potrace_candidate_foreground_delta(
+                    path,
+                    &area,
+                    bitmap.width(),
+                    bitmap.height()
+                )
+                .unsigned_abs()
+        );
+    }
+}
+
+#[test]
 fn bestpolygon_area_alpha_candidate_rejects_template_regressions() {
     let fixtures = [
         rounded_rect_union_bitmap(&[

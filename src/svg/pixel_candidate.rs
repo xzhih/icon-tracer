@@ -699,20 +699,35 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
         return false;
     };
 
-    if !pixel_potrace_loose_candidate_is_better(path, canvas_size, candidate, best) {
-        return false;
-    }
-
+    let candidate_bytes =
+        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
+    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
+    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
+    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
     let candidate_delta =
         pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+
+    if candidate.1.len() <= best.1.len()
+        && candidate_bytes <= best_bytes
+        && candidate_error < best_error
+        && candidate_boundary_error < best_boundary_error
+        && candidate_delta < best_delta
+    {
+        return true;
+    }
+
+    if !pixel_potrace_loose_candidate_is_better(path, canvas_size, candidate, best) {
+        return false;
+    }
+
     if candidate_delta.saturating_add(MIN_FOREGROUND_DELTA_IMPROVEMENT) <= best_delta {
         return true;
     }
 
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
     candidate_error.saturating_add(MIN_MASK_RESCUE_IMPROVEMENT) <= best_error
         && candidate
             .1
