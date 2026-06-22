@@ -835,6 +835,39 @@ fn pixel_gentle_angle_diagonal_capsule_uses_potrace_template() {
 }
 
 #[test]
+fn pixel_steep_angle_diagonal_capsule_uses_potrace_cubic_template() {
+    let bitmap = capsule_bitmap((70.0, 42.0), (88.0, 214.0), 19.0);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce selected candidate");
+    let selected_data = compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1);
+    let selected_error =
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height());
+
+    assert!(diagonal_capsule_prefers_steep_template(&path.points));
+    assert_eq!(selected.1.len(), 9, "{selected_data}");
+    assert!(
+        selected
+            .1
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_))),
+        "{selected_data}"
+    );
+    assert!(selected_error <= 65, "{selected_error}: {selected_data}");
+    assert!(!selected_data.contains('l'), "{selected_data}");
+}
+
+#[test]
 fn pixel_diagonal_capsule_rejects_small_best_area_canaries() {
     let fixtures = [
         capsule_bitmap((38.0, 184.0), (218.0, 72.0), 17.0),
