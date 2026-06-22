@@ -138,6 +138,7 @@ pub(crate) fn pixel_potrace_path_precision_preference(
     opt_tolerance: f64,
 ) -> SvgPathPrecision {
     const MIN_TENTH_QUANTIZATION_REGRESSION_PIXELS: usize = 8;
+    const MIN_LINE_POLYGON_TENTH_QUANTIZATION_REGRESSION_PIXELS: usize = 2;
 
     let Some((width, height)) = canvas_size else {
         return SvgPathPrecision::Compact;
@@ -157,19 +158,39 @@ pub(crate) fn pixel_potrace_path_precision_preference(
     ) else {
         return SvgPathPrecision::Compact;
     };
-    if pixel_potrace_candidate_prefers_scaled_precision(&candidate) {
-        return SvgPathPrecision::ForceScaled;
-    }
-
     let tenth = quantize_potrace_candidate_to_tenth(&candidate);
     let candidate_error = pixel_potrace_candidate_mask_error(path, &candidate, width, height);
     let tenth_error = pixel_potrace_candidate_mask_error(path, &tenth, width, height);
+
+    if pixel_potrace_candidate_is_simple_line_polygon(&candidate)
+        && candidate_error.saturating_add(MIN_LINE_POLYGON_TENTH_QUANTIZATION_REGRESSION_PIXELS)
+            <= tenth_error
+    {
+        return SvgPathPrecision::PreserveFractional;
+    }
+
+    if pixel_potrace_candidate_prefers_scaled_precision(&candidate) {
+        return SvgPathPrecision::ForceScaled;
+    }
 
     if candidate_error.saturating_add(MIN_TENTH_QUANTIZATION_REGRESSION_PIXELS) <= tenth_error {
         SvgPathPrecision::ForceScaled
     } else {
         SvgPathPrecision::Compact
     }
+}
+
+fn pixel_potrace_candidate_is_simple_line_polygon(
+    candidate: &((f64, f64), Vec<SvgPathSegment>),
+) -> bool {
+    const MAX_LINE_SEGMENTS: usize = 8;
+
+    !candidate.1.is_empty()
+        && candidate.1.len() <= MAX_LINE_SEGMENTS
+        && candidate
+            .1
+            .iter()
+            .all(|segment| matches!(segment, SvgPathSegment::Line { .. }))
 }
 
 fn pixel_potrace_candidate_prefers_scaled_precision(
