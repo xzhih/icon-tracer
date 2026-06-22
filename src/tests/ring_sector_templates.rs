@@ -98,7 +98,7 @@ fn pixel_narrow_gap_ring_sector_keeps_existing_trace_path() {
 }
 
 #[test]
-fn pixel_narrow_gap_ring_sector_can_use_bestpolygon_candidate() {
+fn pixel_narrow_gap_ring_sector_can_use_same_segment_best_area_candidate() {
     let bitmap = ring_sector_bitmap(30.0, 310.0, 42.0, 78.0);
     let traced = trace_bitmap(
         &bitmap,
@@ -110,18 +110,25 @@ fn pixel_narrow_gap_ring_sector_can_use_bestpolygon_candidate() {
         },
     );
     let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
     let base = base_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce a base candidate");
     let bestpolygon = bestpolygon_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce a bestpolygon candidate");
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a best-area candidate");
 
     let base_error =
         pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height());
     let bestpolygon_error =
         pixel_potrace_candidate_mask_error(path, &bestpolygon, bitmap.width(), bitmap.height());
+    let best_area_error =
+        pixel_potrace_candidate_mask_error(path, &best_area, bitmap.width(), bitmap.height());
     let base_bytes = compact_svg_path_data_from_segments_without_arcs(base.0, &base.1).len();
     let bestpolygon_bytes =
         compact_svg_path_data_from_segments_without_arcs(bestpolygon.0, &bestpolygon.1).len();
+    let best_area_bytes =
+        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1).len();
 
     assert!(bestpolygon_error <= base_error);
     assert!(
@@ -134,13 +141,25 @@ fn pixel_narrow_gap_ring_sector_can_use_bestpolygon_candidate() {
         &bestpolygon,
         &base
     ));
+    assert_eq!(best_area.1.len(), bestpolygon.1.len());
+    assert!(best_area_bytes <= bestpolygon_bytes);
+    assert!(best_area_error + 8 <= bestpolygon_error);
+    assert!(
+        pixel_potrace_candidate_boundary_rms_error(path, &best_area)
+            < pixel_potrace_candidate_boundary_rms_error(path, &bestpolygon)
+    );
+    assert!(pixel_potrace_ring_sector_detailed_candidate_is_better(
+        path,
+        canvas_size,
+        &best_area,
+        &bestpolygon
+    ));
 
-    let selected =
-        choose_pixel_potrace_point_set(path, 0.2, Some((bitmap.width(), bitmap.height())), false)
-            .expect("fixture should produce a selected candidate");
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(bestpolygon.0, &bestpolygon.1)
+        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
     );
 }
 
@@ -190,41 +209,6 @@ fn pixel_ring_sector_can_accept_detailed_best_area_rescue() {
         pixel_potrace_candidate_boundary_rms_error(path, &selected)
             < pixel_potrace_candidate_boundary_rms_error(path, &base)
     );
-}
-
-#[test]
-fn pixel_ring_sector_rejects_detailed_best_area_canaries() {
-    let fixtures = [ring_sector_bitmap(30.0, 310.0, 42.0, 78.0)];
-
-    for bitmap in fixtures {
-        let traced = trace_bitmap(
-            &bitmap,
-            TraceOptions {
-                turd_size: 2,
-                opt_tolerance: 0.0,
-                contour_mode: ContourMode::Pixel,
-                preserve_collinear: true,
-            },
-        );
-        let path = traced.paths.first().expect("fixture should trace one path");
-        let base = pixel_potrace_segments_for_points(
-            path,
-            &path.points,
-            0.2,
-            Some((bitmap.width(), bitmap.height())),
-            false,
-        )
-        .expect("fixture should produce a base candidate");
-        let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
-            .expect("fixture should produce best-area candidate");
-
-        assert!(!pixel_potrace_ring_sector_detailed_candidate_is_better(
-            path,
-            Some((bitmap.width(), bitmap.height())),
-            &best_area,
-            &base,
-        ));
-    }
 }
 
 #[test]
@@ -444,6 +428,7 @@ fn pixel_moderate_gap_ring_sector_prefers_potrace_template() {
 #[test]
 fn pixel_ring_sector_rejects_loose_vertex_canaries() {
     let fixtures = [
+        ring_sector_bitmap(30.0, 310.0, 42.0, 78.0),
         ring_sector_bitmap(210.0, 140.0, 36.0, 76.0),
         ring_sector_bitmap(350.0, 190.0, 44.0, 82.0),
     ];

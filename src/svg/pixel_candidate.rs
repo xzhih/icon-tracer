@@ -605,6 +605,7 @@ pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
     const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
+    const MIN_SAME_SEGMENT_MASK_IMPROVEMENT_PIXELS: usize = 8;
     const MIN_SEGMENT_GROWTH: usize = 3;
     const MAX_SEGMENT_GROWTH: usize = 6;
     const MAX_EXTRA_D_BYTES: usize = 180;
@@ -645,6 +646,15 @@ pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
         pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+    if segment_growth == 0
+        && candidate_bytes <= best_bytes
+        && candidate_error.saturating_add(MIN_SAME_SEGMENT_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && candidate_boundary_error <= best_boundary_error
+        && candidate_delta <= best_delta
+    {
+        return true;
+    }
+
     if (MIN_SEGMENT_GROWTH..=MAX_SEGMENT_GROWTH).contains(&segment_growth)
         && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
         && candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) <= best_error
