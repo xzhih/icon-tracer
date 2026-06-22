@@ -1051,9 +1051,12 @@ pub(crate) fn pixel_potrace_sibling_area_candidate_is_better(
     best: &((f64, f64), Vec<SvgPathSegment>),
 ) -> bool {
     const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
+    const MATERIAL_MASK_IMPROVEMENT_PIXELS: usize = 12;
     const MAX_EXTRA_D_BYTES: usize = 16;
     const MAX_EXTRA_SEGMENTS: usize = 2;
     const MAX_EXTRA_FOREGROUND_DELTA: usize = 4;
+    const MAX_MATERIAL_FOREGROUND_DELTA: usize = 40;
+    const MAX_MATERIAL_EXTRA_BOUNDARY_ERROR: f64 = 0.04;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -1078,15 +1081,20 @@ pub(crate) fn pixel_potrace_sibling_area_candidate_is_better(
 
     let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
     let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    if candidate_boundary_error >= best_boundary_error {
-        return false;
-    }
 
     let candidate_delta =
         pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
+
+    if candidate_boundary_error < best_boundary_error {
+        return candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA);
+    }
+
+    candidate_bytes <= best_bytes
+        && candidate_error.saturating_add(MATERIAL_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && candidate_delta <= MAX_MATERIAL_FOREGROUND_DELTA
+        && candidate_boundary_error <= best_boundary_error + MAX_MATERIAL_EXTRA_BOUNDARY_ERROR
 }
 
 pub(crate) fn pixel_potrace_sibling_best_area_rescue_candidate_is_better(
