@@ -830,7 +830,7 @@ fn pixel_gentle_angle_diagonal_capsule_uses_potrace_template() {
         )
     );
     assert!(
-        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 180
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 171
     );
 }
 
