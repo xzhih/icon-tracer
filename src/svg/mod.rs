@@ -169,7 +169,18 @@ pub(crate) fn pixel_potrace_path_precision_preference(
         return SvgPathPrecision::PreserveFractional;
     }
 
-    if pixel_potrace_candidate_prefers_scaled_precision(&candidate) {
+    let prefers_legacy_scaled_precision =
+        pixel_potrace_candidate_prefers_scaled_precision(&candidate, 14);
+    let prefers_expanded_scaled_precision = if has_sibling_paths {
+        false
+    } else {
+        let mirror_mismatch = pixel_potrace_horizontal_mirror_mismatch_ratio(path, width, height);
+        !(0.05..0.3).contains(&mirror_mismatch)
+            && pixel_potrace_candidate_prefers_scaled_precision(&candidate, 8)
+    };
+    if fit_closed_diagonal_capsule_potrace_segments(&path.points).is_none()
+        && (prefers_legacy_scaled_precision || prefers_expanded_scaled_precision)
+    {
         return SvgPathPrecision::ForceScaled;
     }
 
@@ -195,14 +206,14 @@ fn pixel_potrace_candidate_is_simple_line_polygon(
 
 fn pixel_potrace_candidate_prefers_scaled_precision(
     candidate: &((f64, f64), Vec<SvgPathSegment>),
+    min_complex_cubic_count: usize,
 ) -> bool {
-    const MIN_COMPLEX_CUBIC_COUNT: usize = 14;
     const MIN_COMPLEX_LINE_COUNT: usize = 16;
 
     let stats = scaled_precision_stats(candidate);
 
     stats.has_tenth_residue
-        && (stats.cubic_count >= MIN_COMPLEX_CUBIC_COUNT
+        && (stats.cubic_count >= min_complex_cubic_count
             || stats.line_count >= MIN_COMPLEX_LINE_COUNT)
 }
 
