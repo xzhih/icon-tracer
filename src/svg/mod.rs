@@ -565,6 +565,7 @@ fn compact_strict_pixel_potrace_segments_for_points(
 const PIXEL_POTRACE_COMPACT_TOLERANCE: f64 = 0.0;
 pub(crate) const PIXEL_POTRACE_FINE_OPT_TOLERANCE: f64 = 0.1;
 pub(crate) const PIXEL_POTRACE_LOOSE_OPT_TOLERANCE: f64 = 0.3;
+pub(crate) const PIXEL_POTRACE_HIGH_OPT_TOLERANCE: f64 = 0.4;
 pub(crate) const PIXEL_POTRACE_SIBLING_RELAXED_OPT_TOLERANCE: f64 = 0.75;
 const PIXEL_POTRACE_RELAXED_POINT_SET_TOLERANCE: f64 = 1.0;
 const MIN_RELAXED_POINT_SET_SEGMENTS: usize = 24;
@@ -742,6 +743,20 @@ pub(crate) fn pixel_potrace_points_match_protected_template(points: &[(f64, f64)
     fit_closed_t_potrace_segments(points).is_some()
         || fit_closed_h_potrace_segments(points).is_some()
         || diagonal_capsule_prefers_medium_low_template(points)
+}
+
+pub(crate) fn pixel_potrace_points_match_high_tolerance_protected_template(
+    points: &[(f64, f64)],
+) -> bool {
+    pixel_potrace_points_match_protected_template(points)
+        || fit_closed_chevron_potrace_segments(points).is_some()
+        || fit_closed_plus_potrace_segments(points).is_some()
+        || fit_closed_hooked_l_potrace_segments(points).is_some()
+        || fit_closed_l_potrace_segments(points).is_some()
+        || fit_closed_staple_potrace_segments(points).is_some()
+        || closed_stepped_e_potrace_candidates(points).is_some()
+        || fit_closed_stepped_f_potrace_segments(points).is_some()
+        || fit_closed_open_ring_potrace_segments(points).is_some()
 }
 
 pub(crate) fn choose_pixel_potrace_segments(

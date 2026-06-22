@@ -309,6 +309,24 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
         }
     }
 
+    if !pixel_potrace_points_match_high_tolerance_protected_template(&path.points)
+        && opt_tolerance < PIXEL_POTRACE_HIGH_OPT_TOLERANCE
+    {
+        if let Some(candidate) = bestpolygon_area_alpha_pixel_potrace_segments_for_points(
+            &path.points,
+            PIXEL_POTRACE_HIGH_OPT_TOLERANCE,
+        ) {
+            if pixel_potrace_high_tolerance_candidate_is_better(
+                path,
+                canvas_size,
+                &candidate,
+                &best,
+            ) {
+                best = candidate;
+            }
+        }
+    }
+
     Some(best)
 }
 
