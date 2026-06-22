@@ -492,7 +492,7 @@ fn pixel_low_angle_diagonal_capsule_uses_potrace_template() {
         compact_svg_path_data_from_segments_without_arcs(final_candidate.0, &final_candidate.1),
         compact_svg_path_data_from_segments_without_arcs(quadratic.0, &quadratic.1)
     );
-    assert!(final_error <= 360, "{final_data}");
+    assert!(final_error <= 341, "{final_error}: {final_data}");
     assert!(compact_path_command_count(&final_data) <= 8, "{final_data}");
     assert!(final_data.len() <= 220, "{final_data}");
 }
