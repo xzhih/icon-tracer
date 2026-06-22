@@ -81,9 +81,26 @@ def main() -> int:
     parser.add_argument("--no-build", action="store_true", help="reuse target/release/icon-tracer")
     parser.add_argument("--out-dir", default=None, help="output directory")
     parser.add_argument("--check", action="store_true", help="fail if broad probe metrics regress")
+    parser.add_argument(
+        "--fixtures",
+        action="append",
+        default=[],
+        help="run only named fixtures, comma-separated or repeated (for example: --fixtures kite,sharp_v)",
+    )
     args = parser.parse_args()
 
     pp = load_potrace_parity_module()
+    fixtures = broad_fixtures(pp)
+    selected_names = parse_fixture_names(args.fixtures)
+    if selected_names:
+        fixtures_by_name = {fixture.name: fixture for fixture in fixtures}
+        unknown = [name for name in selected_names if name not in fixtures_by_name]
+        if unknown:
+            print(f"error: unknown broad fixture(s): {', '.join(unknown)}", file=sys.stderr)
+            return 2
+        fixtures = [fixtures_by_name[name] for name in selected_names]
+    total_limit = broad_total_limit(fixtures, filtered=bool(selected_names))
+
     out_dir = Path(args.out_dir) if args.out_dir else OUT_DIR
     pp.ensure_dirs(out_dir)
     magick = pp.require_tool("magick")
@@ -99,26 +116,27 @@ def main() -> int:
 
     rows = [
         pp.run_fixture(magick, potrace, icon_tracer, out_dir, fixture)
-        for fixture in broad_fixtures(pp)
+        for fixture in fixtures
     ]
     report = {
         "canvas": {"width": pp.CANVAS, "height": pp.CANVAS},
         "mode": pp.MODE,
         "potrace_opts": list(pp.POTRACE_OPTS),
         "icon_opts": list(pp.ICON_OPTS),
+        "fixture_filter": [fixture.name for fixture in fixtures] if selected_names else None,
         "total_mask_ae_pixels": sum(row["mask_ae_pixels"] for row in rows),
         "fixtures": rows,
     }
     pp.write_json(out_dir / "report.json", report)
     pp.write_csv(out_dir / "report.csv", rows)
-    write_broad_markdown(pp, out_dir / "report.md", rows)
+    write_broad_markdown(pp, out_dir / "report.md", rows, total_limit)
     pp.print_table(rows)
-    print_broad_summary(rows)
+    print_broad_summary(rows, total_limit)
     print_worst_gaps(rows)
     print(f"\nreport: {out_dir / 'report.md'}")
 
     if args.check:
-        failures = broad_regressions(rows)
+        failures = broad_regressions(rows, total_limit)
         if failures:
             print("\nbroad parity regressions:", file=sys.stderr)
             for failure in failures:
@@ -126,6 +144,24 @@ def main() -> int:
             return 1
         print("broad parity check: ok")
     return 0
+
+
+def parse_fixture_names(values: list[str]) -> list[str]:
+    names = []
+    seen = set()
+    for value in values:
+        for name in value.split(","):
+            name = name.strip()
+            if name and name not in seen:
+                names.append(name)
+                seen.add(name)
+    return names
+
+
+def broad_total_limit(fixtures: list, filtered: bool) -> int:
+    if not filtered:
+        return TOTAL_AE_LIMIT
+    return sum(BROAD_AE_LIMITS[fixture.name] for fixture in fixtures)
 
 
 def load_potrace_parity_module():
@@ -309,14 +345,14 @@ def total_mask_ae_pixels(rows: list[dict]) -> int:
     return sum(row["mask_ae_pixels"] for row in rows)
 
 
-def print_broad_summary(rows: list[dict]) -> None:
-    print(f"\ntotal broad AE: {total_mask_ae_pixels(rows)} / {TOTAL_AE_LIMIT}")
+def print_broad_summary(rows: list[dict], total_limit: int) -> None:
+    print(f"\ntotal broad AE: {total_mask_ae_pixels(rows)} / {total_limit}")
 
 
-def write_broad_markdown(pp, path: Path, rows: list[dict]) -> None:
+def write_broad_markdown(pp, path: Path, rows: list[dict], total_limit: int) -> None:
     pp.write_markdown(path, rows)
     text = path.read_text(encoding="utf-8")
-    summary = f"Total broad AE: `{total_mask_ae_pixels(rows)}` / `{TOTAL_AE_LIMIT}`"
+    summary = f"Total broad AE: `{total_mask_ae_pixels(rows)}` / `{total_limit}`"
     text = text.replace(f"Mode: `{pp.MODE}`\n", f"Mode: `{pp.MODE}`\n\n{summary}\n", 1)
     path.write_text(text, encoding="utf-8")
 
@@ -331,11 +367,11 @@ def print_worst_gaps(rows: list[dict]) -> None:
         )
 
 
-def broad_regressions(rows: list[dict]) -> list[str]:
+def broad_regressions(rows: list[dict], total_limit: int) -> list[str]:
     failures = []
     total = total_mask_ae_pixels(rows)
-    if total > TOTAL_AE_LIMIT:
-        failures.append(f"total mask_ae_pixels {total} > {TOTAL_AE_LIMIT}")
+    if total > total_limit:
+        failures.append(f"total mask_ae_pixels {total} > {total_limit}")
     for row in rows:
         limit = BROAD_AE_LIMITS.get(row["fixture"])
         if limit is None:
