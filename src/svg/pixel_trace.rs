@@ -229,6 +229,29 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
     }
 
     if opt_tolerance > PIXEL_POTRACE_FINE_OPT_TOLERANCE {
+        if !pixel_potrace_points_match_high_tolerance_protected_template(&path.points)
+            && canvas_size.is_some_and(|(width, height)| {
+                pixel_potrace_candidate_mask_error(path, &best, width, height)
+                    >= PIXEL_POTRACE_FINE_DETAIL_MIN_BEST_MASK_ERROR_PIXELS
+            })
+        {
+            if let Some(candidate) = choose_pixel_potrace_point_set_with_context(
+                path,
+                PIXEL_POTRACE_FINE_OPT_TOLERANCE,
+                canvas_size,
+                has_holes,
+                has_sibling_paths,
+            ) {
+                if pixel_potrace_fine_detail_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                ) {
+                    best = candidate;
+                }
+            }
+        }
         if let Some(candidate) = pixel_potrace_segments_for_points(
             path,
             &path.points,

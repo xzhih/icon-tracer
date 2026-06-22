@@ -99,7 +99,7 @@ fn loose_opt_candidate_rejects_known_global_tolerance_regressions() {
 }
 
 #[test]
-fn bestpolygon_area_alpha_candidate_can_rescue_overlapping_union() {
+fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_wins() {
     let bitmap = rounded_rect_union_bitmap(&[
         (86.0, 49.0, 168.0, 132.0, 23.0),
         (43.0, 60.0, 156.0, 143.0, 10.0),
@@ -122,6 +122,9 @@ fn bestpolygon_area_alpha_candidate_can_rescue_overlapping_union() {
         .expect("fixture should produce a base candidate");
     let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce a bestpolygon area-alpha candidate");
+    let fine =
+        choose_pixel_potrace_point_set(path, PIXEL_POTRACE_FINE_OPT_TOLERANCE, canvas_size, false)
+            .expect("fixture should produce a full fine candidate");
 
     assert!(pixel_potrace_best_area_candidate_is_better(
         path,
@@ -131,14 +134,17 @@ fn bestpolygon_area_alpha_candidate_can_rescue_overlapping_union() {
     ));
     assert_eq!(
         compact_svg_path_data_from_segments(selected.0, &selected.1),
-        compact_svg_path_data_from_segments(best_area.0, &best_area.1)
+        compact_svg_path_data_from_segments(fine.0, &fine.1)
     );
     let selected_error =
         pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height());
+    let best_area_error =
+        pixel_potrace_candidate_mask_error(path, &best_area, bitmap.width(), bitmap.height());
     let base_error =
         pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height());
 
     assert!(selected.1.len() < base.1.len());
+    assert!(selected_error <= best_area_error.saturating_add(4));
     assert!(selected_error <= base_error + 16);
 }
 
