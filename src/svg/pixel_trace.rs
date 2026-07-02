@@ -126,6 +126,20 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
                 best_is_base = false;
             }
         }
+
+        if let Some(candidate) = relaxed_quadrilateral_curve_candidate(path) {
+            if pixel_potrace_candidate_is_better(path, canvas_size, &candidate, &best)
+                || relaxed_quadrilateral_curve_candidate_is_better(
+                    path,
+                    canvas_size,
+                    &candidate,
+                    &best,
+                )
+            {
+                best = candidate;
+                best_is_base = false;
+            }
+        }
     }
 
     if let Some(ring_sector) =
@@ -347,6 +361,20 @@ pub(crate) fn choose_pixel_potrace_point_set_with_context(
             ) {
                 best = candidate;
             }
+        }
+    }
+
+    if let Some(candidate) =
+        area_alpha_pixel_potrace_segments_for_points(&path.points, opt_tolerance)
+    {
+        if pixel_potrace_area_alpha_final_candidate_is_better(
+            path,
+            canvas_size,
+            &candidate,
+            &best,
+            true,
+        ) {
+            best = candidate;
         }
     }
 

@@ -6,6 +6,19 @@ uncompressed 24/32-bit BMP files, PNG files, and JPEG files, thresholds them
 into a black and white bitmap, traces the foreground regions, and writes a
 filled SVG path.
 
+## Development governance
+
+Tracked project governance lives in `AGENTS.md` and `docs/governance.md`. Before
+claiming repository work is complete, run the lightweight governance check:
+
+```sh
+scripts/check-governance.py
+```
+
+The governance check verifies required docs, reviewable file sizes, and lingering
+open-work markers. Behavior-specific verification commands are listed below and
+in `docs/governance.md`.
+
 ## Usage
 
 ```sh

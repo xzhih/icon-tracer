@@ -19,10 +19,10 @@ fn loose_opt_candidate_can_rescue_oversegmented_union() {
     );
     let path = traced.paths.first().expect("fixture should trace one path");
     let canvas_size = Some((bitmap.width(), bitmap.height()));
-    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
-        .expect("fixture should produce a selected candidate");
     let base = pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
         .expect("fixture should produce a base candidate");
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
     let loose = pixel_potrace_segments_for_points(
         path,
         &path.points,
@@ -38,9 +38,9 @@ fn loose_opt_candidate_can_rescue_oversegmented_union() {
         &loose,
         &base,
     ));
-    assert_eq!(
-        compact_svg_path_data_from_segments(selected.0, &selected.1),
-        compact_svg_path_data_from_segments(loose.0, &loose.1)
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
+            <= pixel_potrace_candidate_mask_error(path, &loose, bitmap.width(), bitmap.height())
     );
     assert!(selected.1.len() < base.1.len());
 }
@@ -99,7 +99,7 @@ fn loose_opt_candidate_rejects_known_global_tolerance_regressions() {
 }
 
 #[test]
-fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_wins() {
+fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_defers() {
     let bitmap = rounded_rect_union_bitmap(&[
         (86.0, 49.0, 168.0, 132.0, 23.0),
         (43.0, 60.0, 156.0, 143.0, 10.0),
@@ -116,10 +116,10 @@ fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_wins() {
     );
     let path = traced.paths.first().expect("fixture should trace one path");
     let canvas_size = Some((bitmap.width(), bitmap.height()));
-    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
-        .expect("fixture should produce a selected candidate");
     let base = pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
         .expect("fixture should produce a base candidate");
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
     let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce a bestpolygon area-alpha candidate");
     let fine =
@@ -132,9 +132,15 @@ fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_wins() {
         &best_area,
         &base,
     ));
+    assert!(!pixel_potrace_fine_detail_candidate_is_better(
+        path,
+        canvas_size,
+        &fine,
+        &best_area,
+    ));
     assert_eq!(
         compact_svg_path_data_from_segments(selected.0, &selected.1),
-        compact_svg_path_data_from_segments(fine.0, &fine.1)
+        compact_svg_path_data_from_segments(best_area.0, &best_area.1)
     );
     let selected_error =
         pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height());
@@ -144,8 +150,40 @@ fn bestpolygon_area_alpha_candidate_stays_bounded_when_fine_detail_wins() {
         pixel_potrace_candidate_mask_error(path, &base, bitmap.width(), bitmap.height());
 
     assert!(selected.1.len() < base.1.len());
-    assert!(selected_error <= best_area_error.saturating_add(4));
+    assert_eq!(selected_error, best_area_error);
     assert!(selected_error <= base_error + 16);
+}
+
+#[test]
+fn bestpolygon_area_alpha_candidate_can_replace_near_best_compact_union() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (107.0, 70.0, 167.0, 107.0, 12.0),
+        (105.0, 66.0, 190.0, 116.0, 17.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
+    let best_area = bestpolygon_area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce a bestpolygon area-alpha candidate");
+
+    assert_eq!(
+        compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+        compact_svg_path_data_from_segments_without_arcs(best_area.0, &best_area.1)
+    );
+    assert!(selected.1.len() + 4 <= 12);
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) <= 24
+    );
 }
 
 #[test]
@@ -318,6 +356,111 @@ fn bestpolygon_area_alpha_candidate_rejects_template_regressions() {
             &base,
         ));
     }
+}
+
+#[test]
+fn loose_opt_candidate_can_rescue_complex_union_with_small_segment_savings() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (49.0, 84.0, 168.0, 139.0, 19.0),
+        (52.0, 108.0, 96.0, 210.0, 8.0),
+        (99.0, 123.0, 210.0, 181.0, 25.0),
+        (76.0, 65.0, 162.0, 196.0, 26.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let base = pixel_potrace_segments_for_points(path, &path.points, 0.2, canvas_size, false)
+        .expect("fixture should produce a base candidate");
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
+    let loose = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        PIXEL_POTRACE_LOOSE_OPT_TOLERANCE,
+        canvas_size,
+        false,
+    )
+    .expect("fixture should produce a loose candidate");
+
+    assert!(pixel_potrace_loose_candidate_is_better(
+        path,
+        canvas_size,
+        &loose,
+        &base,
+    ));
+    assert_eq!(
+        compact_svg_path_data_from_segments(selected.0, &selected.1),
+        compact_svg_path_data_from_segments(loose.0, &loose.1)
+    );
+    assert!(loose.1.len() + 2 <= base.1.len());
+}
+
+#[test]
+fn area_alpha_final_candidate_can_rescue_complex_union_with_small_growth() {
+    let bitmap = rounded_rect_union_bitmap(&[
+        (69.0, 66.0, 144.0, 192.0, 13.0),
+        (62.0, 171.0, 160.0, 205.0, 13.0),
+        (42.0, 74.0, 92.0, 194.0, 10.0),
+        (82.0, 57.0, 147.0, 155.0, 19.0),
+    ]);
+    let traced = trace_bitmap(
+        &bitmap,
+        TraceOptions {
+            turd_size: 2,
+            opt_tolerance: 0.0,
+            contour_mode: ContourMode::Pixel,
+            preserve_collinear: true,
+        },
+    );
+    let path = traced.paths.first().expect("fixture should trace one path");
+    let canvas_size = Some((bitmap.width(), bitmap.height()));
+    let selected = choose_pixel_potrace_point_set(path, 0.2, canvas_size, false)
+        .expect("fixture should produce a selected candidate");
+    let loose = pixel_potrace_segments_for_points(
+        path,
+        &path.points,
+        PIXEL_POTRACE_LOOSE_OPT_TOLERANCE,
+        canvas_size,
+        false,
+    )
+    .expect("fixture should produce a loose candidate");
+    let area = area_alpha_pixel_potrace_segments_for_points(&path.points, 0.2)
+        .expect("fixture should produce an area-alpha candidate");
+
+    assert!(pixel_potrace_area_alpha_final_candidate_is_better(
+        path,
+        canvas_size,
+        &area,
+        &loose,
+        true,
+    ));
+    assert!(!pixel_potrace_loose_candidate_is_better(
+        path,
+        canvas_size,
+        &loose,
+        &area,
+    ));
+    assert_ne!(
+        compact_svg_path_data_from_segments(selected.0, &selected.1),
+        compact_svg_path_data_from_segments(loose.0, &loose.1)
+    );
+    assert_eq!(area.1.len(), loose.1.len() + 1);
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height()) + 4
+            <= pixel_potrace_candidate_mask_error(path, &loose, bitmap.width(), bitmap.height())
+    );
+    assert!(
+        pixel_potrace_candidate_mask_error(path, &area, bitmap.width(), bitmap.height()) + 8
+            <= pixel_potrace_candidate_mask_error(path, &loose, bitmap.width(), bitmap.height())
+    );
 }
 
 fn local_capsule_bitmap(start: (f64, f64), end: (f64, f64), half_width: f64) -> Bitmap {

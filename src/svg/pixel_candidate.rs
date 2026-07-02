@@ -1,5 +1,4 @@
 use super::*;
-use crate::trace::rasterize_path_evenodd;
 
 pub(crate) fn pixel_potrace_candidate_is_better(
     path: &TracePath,
@@ -123,6 +122,9 @@ pub(crate) fn pixel_potrace_area_alpha_final_candidate_is_better(
     const MAX_MATERIAL_EXTRA_D_BYTES: usize = 96;
     const MAX_MATERIAL_EXTRA_SEGMENTS: usize = 2;
     const MIN_MATERIAL_MIRROR_MISMATCH_RATIO: f64 = 0.3;
+    const SMALL_GROWTH_MASK_IMPROVEMENT_PIXELS: usize = 8;
+    const MAX_SMALL_GROWTH_EXTRA_D_BYTES: usize = 24;
+    const MAX_SMALL_GROWTH_EXTRA_SEGMENTS: usize = 1;
     const STRONG_MIN_D_BYTES_SAVINGS: usize = 64;
     const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.02;
     const MIN_BEST_SEGMENTS: usize = 16;
@@ -155,6 +157,20 @@ pub(crate) fn pixel_potrace_area_alpha_final_candidate_is_better(
         compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
     let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
     if saves_segments && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
+        return true;
+    }
+
+    let candidate_delta =
+        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
+    let best_delta =
+        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+    if allow_material_growth
+        && candidate.1.len() == best.1.len().saturating_add(MAX_SMALL_GROWTH_EXTRA_SEGMENTS)
+        && candidate_error.saturating_add(SMALL_GROWTH_MASK_IMPROVEMENT_PIXELS) <= best_error
+        && candidate_boundary_error < best_boundary_error
+        && candidate_bytes <= best_bytes.saturating_add(MAX_SMALL_GROWTH_EXTRA_D_BYTES)
+        && candidate_delta < best_delta
+    {
         return true;
     }
 
@@ -324,9 +340,22 @@ pub(crate) fn pixel_potrace_fine_detail_candidate_is_better(
     if candidate_error > best_error.saturating_add(MAX_EXTRA_MASK_PIXELS) {
         return false;
     }
-
     let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
     let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    if candidate_error > best_error {
+        if candidate_boundary_error >= best_boundary_error {
+            return false;
+        }
+
+        let candidate_delta =
+            pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
+        let best_delta =
+            pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
+        if candidate_delta > best_delta {
+            return false;
+        }
+    }
+
     candidate_boundary_error <= best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR
 }
 
@@ -367,129 +396,6 @@ pub(crate) fn pixel_potrace_high_tolerance_candidate_is_better(
     candidate_boundary_error <= best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR
 }
 
-pub(crate) fn pixel_potrace_diagonal_capsule_fine_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 2;
-    const MAX_EXTRA_D_BYTES: usize = 8;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if fit_closed_diagonal_capsule_potrace_segments(&path.points).is_none() {
-        return false;
-    }
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if candidate.1.len() != best.1.len() {
-        return false;
-    }
-
-    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
-        return false;
-    }
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    candidate_boundary_error < best_boundary_error
-}
-
-pub(crate) fn pixel_potrace_diagonal_capsule_template_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MAX_EXTRA_MASK_PIXELS: usize = 280;
-    const MAX_BOUNDARY_ERROR: f64 = 0.75;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if !diagonal_capsule_prefers_thick_low_angle_template(&path.points) {
-        return false;
-    }
-
-    if candidate.1.len() != 8
-        || !candidate
-            .1
-            .iter()
-            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
-    {
-        return false;
-    }
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if candidate_bytes > best_bytes {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if candidate_error > best_error.saturating_add(MAX_EXTRA_MASK_PIXELS) {
-        return false;
-    }
-
-    pixel_potrace_candidate_boundary_rms_error(path, candidate) <= MAX_BOUNDARY_ERROR
-}
-
-pub(crate) fn pixel_potrace_diagonal_capsule_best_area_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 4;
-    const MIN_SEGMENT_SAVINGS: usize = 2;
-    const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.02;
-    const MAX_EXTRA_FOREGROUND_DELTA: usize = 40;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if fit_closed_diagonal_capsule_potrace_segments(&path.points).is_none() {
-        return false;
-    }
-
-    if candidate.1.len().saturating_add(MIN_SEGMENT_SAVINGS) != best.1.len() {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
-        return false;
-    }
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    if candidate_boundary_error > best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR {
-        return false;
-    }
-
-    let candidate_delta =
-        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
-    let best_delta =
-        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
-}
-
 pub(crate) fn pixel_potrace_loose_candidate_is_better(
     path: &TracePath,
     canvas_size: Option<(usize, usize)>,
@@ -499,20 +405,29 @@ pub(crate) fn pixel_potrace_loose_candidate_is_better(
     const MAX_EXTRA_MASK_PIXELS: usize = 48;
     const MAX_EXTRA_D_BYTES: usize = 32;
     const MIN_BEST_D_BYTES: usize = 240;
+    const MIN_NEAR_BEST_D_BYTES: usize = 232;
+    const MIN_NEAR_BEST_D_BYTES_SAVINGS: usize = 16;
     const MIN_SEGMENT_SAVINGS: usize = 4;
+    const MIN_MASK_RESCUE_SEGMENT_SAVINGS: usize = 2;
+    const MIN_MASK_RESCUE_D_BYTES_SAVINGS: usize = 8;
+    const MIN_MASK_RESCUE_IMPROVEMENT_PIXELS: usize = 4;
 
     let Some((width, height)) = canvas_size else {
         return false;
     };
 
-    if candidate.1.len().saturating_add(MIN_SEGMENT_SAVINGS) > best.1.len() {
+    let segment_savings = best.1.len().saturating_sub(candidate.1.len());
+    if segment_savings < MIN_MASK_RESCUE_SEGMENT_SAVINGS {
         return false;
     }
 
     let candidate_bytes =
         compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
     let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if best_bytes < MIN_BEST_D_BYTES {
+    if best_bytes < MIN_BEST_D_BYTES
+        && (best_bytes < MIN_NEAR_BEST_D_BYTES
+            || candidate_bytes.saturating_add(MIN_NEAR_BEST_D_BYTES_SAVINGS) > best_bytes)
+    {
         return false;
     }
 
@@ -526,162 +441,22 @@ pub(crate) fn pixel_potrace_loose_candidate_is_better(
         return false;
     }
 
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, best_boundary_error)
-}
-
-pub(crate) fn pixel_potrace_quadratic_vertex_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_SEGMENT_GROWTH: usize = 4;
-    const MAX_SEGMENT_GROWTH: usize = 8;
-    const MAX_EXTRA_D_BYTES: usize = 96;
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
-    const MAX_LOW_ANGLE_PRIMITIVE_MASK_PIXELS: usize = 360;
-    const MAX_EXTRA_BOUNDARY_FOR_MASK_RESCUE: f64 = 0.02;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if pixel_potrace_points_are_detailed_annular_sector(&path.points, width, height) {
-        return false;
-    }
-
-    if !pixel_potrace_points_match_quadratic_vertex_capsule_rescue(&path.points) {
-        if pixel_potrace_points_match_quadratic_vertex_medium_capsule_rescue(&path.points) {
-            return pixel_potrace_quadratic_medium_capsule_candidate_is_better(
-                path, width, height, candidate, best,
-            );
-        }
-
-        return pixel_potrace_quadratic_polygon_candidate_is_better(
-            path, width, height, candidate, best,
-        );
-    }
-
-    let segment_growth = candidate.1.len().saturating_sub(best.1.len());
-    if !(MIN_SEGMENT_GROWTH..=MAX_SEGMENT_GROWTH).contains(&segment_growth) {
-        return false;
-    }
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if best.1.len() == 6
-        && best
-            .1
-            .iter()
-            .all(|segment| matches!(segment, SvgPathSegment::Cubic(_)))
-        && candidate
-            .1
-            .iter()
-            .any(|segment| matches!(segment, SvgPathSegment::Line { .. }))
-        && best_error <= MAX_LOW_ANGLE_PRIMITIVE_MASK_PIXELS
-    {
-        return false;
-    }
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-
-    candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) <= best_error
-        && candidate_boundary_error <= best_boundary_error + MAX_EXTRA_BOUNDARY_FOR_MASK_RESCUE
-}
-
-fn pixel_potrace_quadratic_medium_capsule_candidate_is_better(
-    path: &TracePath,
-    width: usize,
-    height: usize,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
-    const MAX_EXTRA_D_BYTES: usize = 96;
-    const MAX_EXTRA_FOREGROUND_DELTA: usize = 32;
-
-    if candidate.1.len() != best.1.len() {
-        return false;
-    }
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > best_error {
-        return false;
-    }
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    if candidate_boundary_error >= best_boundary_error {
-        return false;
-    }
-
     let candidate_delta =
         pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
     let best_delta =
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
-}
-
-fn pixel_potrace_points_match_quadratic_vertex_capsule_rescue(points: &[(f64, f64)]) -> bool {
-    const MIN_AXIS_ANGLE_DEGREES: f64 = 25.0;
-    const MAX_AXIS_ANGLE_DEGREES: f64 = 36.0;
-
-    if fit_closed_diagonal_capsule_potrace_segments(points).is_none() {
+    let saves_many_segments = segment_savings >= MIN_SEGMENT_SAVINGS;
+    let rescues_mask_with_smaller_path =
+        candidate_error.saturating_add(MIN_MASK_RESCUE_IMPROVEMENT_PIXELS) <= best_error
+            && candidate_bytes.saturating_add(MIN_MASK_RESCUE_D_BYTES_SAVINGS) <= best_bytes
+            && candidate_delta <= best_delta;
+    if !saves_many_segments && !rescues_mask_with_smaller_path {
         return false;
     }
 
-    let origin = arc_centroid(points);
-    let Some(axis) = principal_axis_for_points(points, origin) else {
-        return false;
-    };
-    let angle = axis.1.abs().atan2(axis.0.abs()).to_degrees();
-
-    (MIN_AXIS_ANGLE_DEGREES..=MAX_AXIS_ANGLE_DEGREES).contains(&angle)
-}
-
-fn pixel_potrace_points_match_quadratic_vertex_medium_capsule_rescue(
-    points: &[(f64, f64)],
-) -> bool {
-    const MIN_AXIS_ANGLE_DEGREES: f64 = 42.0;
-    const MAX_AXIS_ANGLE_DEGREES: f64 = 52.0;
-    const MIN_RADIUS: f64 = 18.0;
-
-    if fit_closed_diagonal_capsule_potrace_segments(points).is_none() {
-        return false;
-    }
-
-    let origin = arc_centroid(points);
-    let Some(axis) = principal_axis_for_points(points, origin) else {
-        return false;
-    };
-    let angle = axis.1.abs().atan2(axis.0.abs()).to_degrees();
-    if !(MIN_AXIS_ANGLE_DEGREES..=MAX_AXIS_ANGLE_DEGREES).contains(&angle) {
-        return false;
-    }
-
-    let Some(bounds) = local_bounds(points, origin, axis) else {
-        return false;
-    };
-    let radius = (bounds.max_y - bounds.min_y) / 2.0 + 0.125;
-    radius >= MIN_RADIUS
+    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
+    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
+    pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, best_boundary_error)
 }
 
 pub(crate) fn pixel_potrace_best_area_candidate_is_better(
@@ -694,6 +469,12 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
     const MIN_MASK_RESCUE_IMPROVEMENT: usize = 5;
     const MIN_MASK_RESCUE_SEGMENT_SAVINGS: usize = 8;
     const MAX_MASK_RESCUE_FOREGROUND_DELTA: usize = 64;
+    const MAX_STRICT_IMPROVEMENT_EXTRA_D_BYTES: usize = 8;
+    const MIN_LOW_ERROR_RESCUE_SEGMENT_SAVINGS: usize = 4;
+    const MIN_LOW_ERROR_RESCUE_D_BYTES_SAVINGS: usize = 16;
+    const MAX_LOW_ERROR_RESCUE_MASK_PIXELS: usize = 32;
+    const MAX_LOW_ERROR_RESCUE_EXTRA_MASK_PIXELS: usize = 4;
+    const MAX_LOW_ERROR_RESCUE_FOREGROUND_DELTA: usize = 32;
 
     let Some((width, height)) = canvas_size else {
         return false;
@@ -712,7 +493,7 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
         pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
 
     if candidate.1.len() <= best.1.len()
-        && candidate_bytes <= best_bytes
+        && candidate_bytes <= best_bytes.saturating_add(MAX_STRICT_IMPROVEMENT_EXTRA_D_BYTES)
         && candidate_error < best_error
         && candidate_boundary_error < best_boundary_error
         && candidate_delta < best_delta
@@ -722,6 +503,20 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
 
     if !pixel_potrace_loose_candidate_is_better(path, canvas_size, candidate, best) {
         return false;
+    }
+
+    if candidate
+        .1
+        .len()
+        .saturating_add(MIN_LOW_ERROR_RESCUE_SEGMENT_SAVINGS)
+        <= best.1.len()
+        && candidate_bytes.saturating_add(MIN_LOW_ERROR_RESCUE_D_BYTES_SAVINGS) <= best_bytes
+        && candidate_error >= best_error
+        && candidate_error <= MAX_LOW_ERROR_RESCUE_MASK_PIXELS
+        && candidate_error <= best_error.saturating_add(MAX_LOW_ERROR_RESCUE_EXTRA_MASK_PIXELS)
+        && candidate_delta <= MAX_LOW_ERROR_RESCUE_FOREGROUND_DELTA
+    {
+        return true;
     }
 
     if candidate_delta.saturating_add(MIN_FOREGROUND_DELTA_IMPROVEMENT) <= best_delta {
@@ -735,292 +530,6 @@ pub(crate) fn pixel_potrace_best_area_candidate_is_better(
             .saturating_add(MIN_MASK_RESCUE_SEGMENT_SAVINGS)
             <= best.1.len()
         && candidate_delta <= MAX_MASK_RESCUE_FOREGROUND_DELTA
-}
-
-pub(crate) fn pixel_potrace_ring_sector_detailed_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 12;
-    const MIN_SAME_SEGMENT_MASK_IMPROVEMENT_PIXELS: usize = 8;
-    const MIN_SEGMENT_GROWTH: usize = 3;
-    const MAX_SEGMENT_GROWTH: usize = 6;
-    const MAX_EXTRA_D_BYTES: usize = 180;
-    const MIN_THIN_SEGMENT_GROWTH: usize = 7;
-    const MAX_THIN_SEGMENT_GROWTH: usize = 8;
-    const MAX_THIN_EXTRA_MASK_PIXELS: usize = 12;
-    const MAX_THIN_EXTRA_D_BYTES: usize = 220;
-    const MAX_THIN_CANDIDATE_FOREGROUND_DELTA: usize = 24;
-    const MAX_THIN_BEST_FOREGROUND_DELTA: usize = 8;
-    const MIN_COMPACT_ANNULAR_SEGMENT_GROWTH: usize = 8;
-    const MAX_COMPACT_ANNULAR_SEGMENT_GROWTH: usize = 10;
-    const MAX_COMPACT_ANNULAR_BEST_ERROR: usize = 24;
-    const MAX_COMPACT_ANNULAR_EXTRA_MASK_PIXELS: usize = 128;
-    const MAX_COMPACT_ANNULAR_EXTRA_D_BYTES: usize = 300;
-    const MAX_COMPACT_ANNULAR_EXTRA_BOUNDARY_ERROR: f64 = 0.12;
-    const MAX_COMPACT_ANNULAR_EXTRA_FOREGROUND_DELTA: usize = 4;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if !pixel_potrace_points_are_detailed_annular_sector(&path.points, width, height) {
-        return false;
-    }
-
-    let segment_growth = candidate.1.len().saturating_sub(best.1.len());
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-
-    let candidate_delta =
-        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
-    let best_delta =
-        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    if segment_growth == 0
-        && candidate_bytes <= best_bytes
-        && candidate_error.saturating_add(MIN_SAME_SEGMENT_MASK_IMPROVEMENT_PIXELS) <= best_error
-        && candidate_boundary_error <= best_boundary_error
-        && candidate_delta <= best_delta
-    {
-        return true;
-    }
-
-    if (MIN_SEGMENT_GROWTH..=MAX_SEGMENT_GROWTH).contains(&segment_growth)
-        && candidate_bytes <= best_bytes.saturating_add(MAX_EXTRA_D_BYTES)
-        && candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) <= best_error
-        && candidate_boundary_error <= best_boundary_error
-        && candidate_delta <= best_delta
-    {
-        return true;
-    }
-
-    if (MIN_THIN_SEGMENT_GROWTH..=MAX_THIN_SEGMENT_GROWTH).contains(&segment_growth)
-        && candidate_bytes <= best_bytes.saturating_add(MAX_THIN_EXTRA_D_BYTES)
-        && candidate_error <= best_error.saturating_add(MAX_THIN_EXTRA_MASK_PIXELS)
-        && candidate_boundary_error < best_boundary_error
-        && candidate_delta <= MAX_THIN_CANDIDATE_FOREGROUND_DELTA
-        && best_delta <= MAX_THIN_BEST_FOREGROUND_DELTA
-    {
-        return true;
-    }
-
-    let compact_annular_best =
-        fit_closed_annular_sector_potrace_segments(&path.points, canvas_size).is_some_and(
-            |segments| {
-                segments.first().is_some_and(|first| {
-                    compact_svg_path_data_from_segments_without_arcs(first.start(), &segments)
-                        == compact_svg_path_data_from_segments_without_arcs(best.0, &best.1)
-                })
-            },
-        );
-    compact_annular_best
-        && (MIN_COMPACT_ANNULAR_SEGMENT_GROWTH..=MAX_COMPACT_ANNULAR_SEGMENT_GROWTH)
-            .contains(&segment_growth)
-        && best_error <= MAX_COMPACT_ANNULAR_BEST_ERROR
-        && candidate_error <= best_error.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_MASK_PIXELS)
-        && candidate_bytes <= best_bytes.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_D_BYTES)
-        && candidate_boundary_error
-            <= best_boundary_error + MAX_COMPACT_ANNULAR_EXTRA_BOUNDARY_ERROR
-        && candidate_delta <= best_delta.saturating_add(MAX_COMPACT_ANNULAR_EXTRA_FOREGROUND_DELTA)
-}
-
-pub(crate) fn pixel_potrace_ring_sector_loose_vertex_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    best: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 8;
-    const MIN_DETAILED_MASK_IMPROVEMENT_PIXELS: usize = 2;
-    const MAX_EXTRA_D_BYTES: usize = 24;
-    const MAX_EXTRA_BOUNDARY_ERROR: f64 = 0.03;
-    const MAX_EXTRA_FOREGROUND_DELTA: usize = 8;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    let thin = pixel_potrace_points_are_thin_detailed_annular_sector(&path.points, width, height);
-    if !thin && !pixel_potrace_points_match_moderate_gap_annular_sector(&path.points, width, height)
-    {
-        return false;
-    }
-
-    if candidate.1.len() > best.1.len() {
-        return false;
-    }
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments_without_arcs(candidate.0, &candidate.1).len();
-    let best_bytes = compact_svg_path_data_from_segments_without_arcs(best.0, &best.1).len();
-    if candidate_bytes > best_bytes.saturating_add(MAX_EXTRA_D_BYTES) {
-        return false;
-    }
-
-    let candidate_error = pixel_potrace_candidate_mask_error(path, candidate, width, height);
-    let best_error = pixel_potrace_candidate_mask_error(path, best, width, height);
-    let min_mask_improvement = if thin {
-        MIN_MASK_IMPROVEMENT_PIXELS
-    } else {
-        MIN_DETAILED_MASK_IMPROVEMENT_PIXELS
-    };
-    if candidate_error.saturating_add(min_mask_improvement) > best_error {
-        return false;
-    }
-
-    let candidate_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, candidate);
-    let best_boundary_error = pixel_potrace_candidate_boundary_rms_error(path, best);
-    if candidate_boundary_error > best_boundary_error + MAX_EXTRA_BOUNDARY_ERROR {
-        return false;
-    }
-
-    let candidate_delta =
-        pixel_potrace_candidate_foreground_delta(path, candidate, width, height).unsigned_abs();
-    let best_delta =
-        pixel_potrace_candidate_foreground_delta(path, best, width, height).unsigned_abs();
-    candidate_delta <= best_delta.saturating_add(MAX_EXTRA_FOREGROUND_DELTA)
-}
-
-fn pixel_potrace_points_match_moderate_gap_annular_sector(
-    points: &[(f64, f64)],
-    width: usize,
-    height: usize,
-) -> bool {
-    const MIN_GAP_DEGREES: f64 = 120.0;
-    const MAX_GAP_DEGREES: f64 = 150.0;
-
-    if !pixel_potrace_points_are_detailed_annular_sector(points, width, height) {
-        return false;
-    }
-
-    let center = (width as f64 / 2.0, height as f64 / 2.0);
-    let Some((_, _, gap_radians)) = annular_sector_angles(points, center) else {
-        return false;
-    };
-    let gap_degrees = gap_radians.to_degrees();
-
-    (MIN_GAP_DEGREES..=MAX_GAP_DEGREES).contains(&gap_degrees)
-}
-
-#[derive(Debug, Clone, Copy)]
-struct AnnularSectorMeasurements {
-    inner_radius: f64,
-    outer_radius: f64,
-}
-
-fn pixel_potrace_points_are_detailed_annular_sector(
-    points: &[(f64, f64)],
-    width: usize,
-    height: usize,
-) -> bool {
-    const MAX_INNER_TO_OUTER_RATIO: f64 = 0.62;
-
-    let Some(measurements) = annular_sector_measurements(points, width, height) else {
-        return false;
-    };
-    measurements.inner_radius / measurements.outer_radius <= MAX_INNER_TO_OUTER_RATIO
-}
-
-pub(crate) fn pixel_potrace_points_prefer_fractional_precision_annular_sector(
-    points: &[(f64, f64)],
-    width: usize,
-    height: usize,
-) -> bool {
-    const MIN_POINTS: usize = 256;
-    const MIN_GAP_DEGREES: f64 = 55.0;
-
-    if points.len() < MIN_POINTS {
-        return false;
-    }
-
-    if !pixel_potrace_points_are_detailed_annular_sector(points, width, height) {
-        return false;
-    }
-
-    let center = (width as f64 / 2.0, height as f64 / 2.0);
-    let Some((_, _, gap_radians)) = annular_sector_angles(points, center) else {
-        return false;
-    };
-
-    gap_radians.to_degrees() >= MIN_GAP_DEGREES
-}
-
-fn pixel_potrace_points_are_thin_detailed_annular_sector(
-    points: &[(f64, f64)],
-    width: usize,
-    height: usize,
-) -> bool {
-    const MIN_INNER_TO_OUTER_RATIO: f64 = 0.56;
-    const MAX_INNER_TO_OUTER_RATIO: f64 = 0.62;
-
-    let Some(measurements) = annular_sector_measurements(points, width, height) else {
-        return false;
-    };
-    let ratio = measurements.inner_radius / measurements.outer_radius;
-    (MIN_INNER_TO_OUTER_RATIO..=MAX_INNER_TO_OUTER_RATIO).contains(&ratio)
-}
-
-fn annular_sector_measurements(
-    points: &[(f64, f64)],
-    width: usize,
-    height: usize,
-) -> Option<AnnularSectorMeasurements> {
-    const MIN_POINTS: usize = 128;
-    const MIN_OUTER_RADIUS: f64 = 48.0;
-    const MIN_STROKE_WIDTH: f64 = 24.0;
-    const INNER_RADIUS_PERCENTILE: f64 = 0.15;
-    const OUTER_RADIUS_PERCENTILE: f64 = 0.85;
-    const MAX_TRIMMED_RADIAL_ERROR: f64 = 1.5;
-    const MIN_GAP_RADIANS: f64 = 0.6;
-
-    if points.len() < MIN_POINTS {
-        return None;
-    }
-
-    let center = (width as f64 / 2.0, height as f64 / 2.0);
-    let bounds = FloatBounds::from_points(points)?;
-    if center.0 < bounds.min_x
-        || center.0 > bounds.max_x
-        || center.1 < bounds.min_y
-        || center.1 > bounds.max_y
-    {
-        return None;
-    }
-
-    let mut distances = points
-        .iter()
-        .map(|point| distance_float(*point, center))
-        .collect::<Vec<_>>();
-    distances.sort_by(f64::total_cmp);
-    let inner_radius = sorted_percentile(&distances, INNER_RADIUS_PERCENTILE).round();
-    let outer_radius = sorted_percentile(&distances, OUTER_RADIUS_PERCENTILE).round();
-    if outer_radius < MIN_OUTER_RADIUS || outer_radius - inner_radius < MIN_STROKE_WIDTH {
-        return None;
-    }
-    if annular_sector_trimmed_radial_error(&distances, inner_radius, outer_radius)
-        > MAX_TRIMMED_RADIAL_ERROR
-    {
-        return None;
-    }
-
-    let (_, _, gap_radians) = annular_sector_angles(points, center)?;
-    if gap_radians < MIN_GAP_RADIANS {
-        return None;
-    }
-
-    Some(AnnularSectorMeasurements {
-        inner_radius,
-        outer_radius,
-    })
 }
 
 pub(crate) fn pixel_potrace_sibling_relaxed_candidate_is_better(
@@ -1203,52 +712,6 @@ pub(crate) fn pixel_potrace_rounded_rect_candidate_is_better(
         && candidate_boundary_error < best_boundary_error
 }
 
-pub(crate) fn pixel_potrace_diagonal_capsule_compact_candidate_is_better(
-    path: &TracePath,
-    canvas_size: Option<(usize, usize)>,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    primitive: &((f64, f64), Vec<SvgPathSegment>),
-) -> bool {
-    const MIN_MASK_IMPROVEMENT_PIXELS: usize = 6;
-    const MAX_EXTRA_SEGMENTS: usize = 24;
-    const MAX_RELATIVE_PATH_BYTES_PERCENT: usize = 205;
-
-    let Some((width, height)) = canvas_size else {
-        return false;
-    };
-
-    if candidate.1.len() > primitive.1.len().saturating_add(MAX_EXTRA_SEGMENTS) {
-        return false;
-    }
-
-    let rendered_candidate = quantize_potrace_candidate_to_tenth(candidate);
-    let rendered_primitive = quantize_potrace_candidate_to_tenth(primitive);
-
-    let candidate_bytes =
-        compact_svg_path_data_from_segments(rendered_candidate.0, &rendered_candidate.1).len();
-    let primitive_bytes =
-        compact_svg_path_data_from_segments(rendered_primitive.0, &rendered_primitive.1).len();
-    if candidate_bytes.saturating_mul(100)
-        > primitive_bytes.saturating_mul(MAX_RELATIVE_PATH_BYTES_PERCENT)
-    {
-        return false;
-    }
-
-    let candidate_error =
-        pixel_potrace_candidate_mask_error(path, &rendered_candidate, width, height);
-    let primitive_error =
-        pixel_potrace_candidate_mask_error(path, &rendered_primitive, width, height);
-    if candidate_error.saturating_add(MIN_MASK_IMPROVEMENT_PIXELS) > primitive_error {
-        return false;
-    }
-
-    let candidate_boundary_error =
-        pixel_potrace_candidate_boundary_rms_error(path, &rendered_candidate);
-    let primitive_boundary_error =
-        pixel_potrace_candidate_boundary_rms_error(path, &rendered_primitive);
-    pixel_potrace_boundary_error_is_acceptable(candidate_boundary_error, primitive_boundary_error)
-}
-
 pub(crate) fn quantize_potrace_candidate_to_tenth(
     candidate: &((f64, f64), Vec<SvgPathSegment>),
 ) -> ((f64, f64), Vec<SvgPathSegment>) {
@@ -1385,217 +848,4 @@ pub(crate) fn pixel_potrace_compact_candidate_is_better(
         candidate_bytes.saturating_mul(100) <= best_bytes.saturating_mul(MAX_RELATIVE_PATH_BYTES);
 
     saves_segments && saves_bytes
-}
-
-pub(crate) fn pixel_potrace_candidate_mask_error(
-    path: &TracePath,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    width: usize,
-    height: usize,
-) -> usize {
-    let mut reference = vec![false; width.saturating_mul(height)];
-    let mut candidate_pixels = vec![false; width.saturating_mul(height)];
-    rasterize_path_evenodd(path, width, height, &mut reference);
-
-    let candidate_path = TracePath {
-        is_hole: path.is_hole,
-        points: flattened_potrace_segments(candidate.0, &candidate.1),
-    };
-    rasterize_path_evenodd_coverage_threshold(
-        &candidate_path,
-        width,
-        height,
-        CANDIDATE_MASK_SUPERSAMPLE,
-        &mut candidate_pixels,
-    );
-
-    reference
-        .iter()
-        .zip(candidate_pixels.iter())
-        .filter(|(left, right)| left != right)
-        .count()
-}
-
-pub(crate) fn pixel_potrace_candidate_foreground_delta(
-    path: &TracePath,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-    width: usize,
-    height: usize,
-) -> isize {
-    let mut reference = vec![false; width.saturating_mul(height)];
-    let mut candidate_pixels = vec![false; width.saturating_mul(height)];
-    rasterize_path_evenodd(path, width, height, &mut reference);
-
-    let candidate_path = TracePath {
-        is_hole: path.is_hole,
-        points: flattened_potrace_segments(candidate.0, &candidate.1),
-    };
-    rasterize_path_evenodd_coverage_threshold(
-        &candidate_path,
-        width,
-        height,
-        CANDIDATE_MASK_SUPERSAMPLE,
-        &mut candidate_pixels,
-    );
-
-    let reference_foreground = reference.iter().filter(|pixel| **pixel).count();
-    let candidate_foreground = candidate_pixels.iter().filter(|pixel| **pixel).count();
-    candidate_foreground as isize - reference_foreground as isize
-}
-
-pub(crate) fn pixel_potrace_horizontal_mirror_mismatch_ratio(
-    path: &TracePath,
-    width: usize,
-    height: usize,
-) -> f64 {
-    let mut reference = vec![false; width.saturating_mul(height)];
-    rasterize_path_evenodd(path, width, height, &mut reference);
-    let foreground = reference.iter().filter(|pixel| **pixel).count();
-    if foreground == 0 {
-        return f64::INFINITY;
-    }
-
-    let mut mismatches = 0usize;
-    for y in 0..height {
-        for x in 0..width {
-            if reference[y * width + x] != reference[y * width + (width - 1 - x)] {
-                mismatches += 1;
-            }
-        }
-    }
-
-    mismatches as f64 / foreground as f64
-}
-
-pub(crate) const CANDIDATE_MASK_SUPERSAMPLE: usize = 4;
-
-pub(crate) fn rasterize_path_evenodd_coverage_threshold(
-    path: &TracePath,
-    width: usize,
-    height: usize,
-    scale: usize,
-    pixels: &mut [bool],
-) {
-    if path.points.len() < 3 || scale == 0 {
-        return;
-    }
-
-    let expected = width.saturating_mul(height);
-    if pixels.len() < expected {
-        return;
-    }
-
-    let sample_width = width.saturating_mul(scale);
-    let sample_height = height.saturating_mul(scale);
-    let threshold = scale.saturating_mul(scale);
-    let mut coverage = vec![0u16; expected];
-    let mut intersections = Vec::new();
-
-    for sample_y in 0..sample_height {
-        let scan_y = (sample_y as f64 + 0.5) / scale as f64;
-        intersections.clear();
-
-        for (start, end) in path.points.iter().zip(path.points.iter().cycle().skip(1)) {
-            if (start.1 <= scan_y && scan_y < end.1) || (end.1 <= scan_y && scan_y < start.1) {
-                let amount = (scan_y - start.1) / (end.1 - start.1);
-                intersections.push(start.0 + (end.0 - start.0) * amount);
-            }
-        }
-
-        intersections.sort_by(|a, b| a.total_cmp(b));
-        let pixel_y = sample_y / scale;
-
-        for pair in intersections.chunks_exact(2) {
-            let left = pair[0].min(pair[1]);
-            let right = pair[0].max(pair[1]);
-            let start_x = clamp_sample_x((left * scale as f64 - 0.5).ceil(), sample_width);
-            let end_x = clamp_sample_x((right * scale as f64 - 0.5).ceil(), sample_width);
-
-            for sample_x in start_x..end_x {
-                let pixel_x = sample_x / scale;
-                coverage[pixel_y * width + pixel_x] += 1;
-            }
-        }
-    }
-
-    for (pixel, count) in pixels.iter_mut().zip(coverage) {
-        *pixel = usize::from(count).saturating_mul(2) >= threshold;
-    }
-}
-
-pub(crate) fn clamp_sample_x(value: f64, sample_width: usize) -> usize {
-    if value <= 0.0 {
-        0
-    } else if value >= sample_width as f64 {
-        sample_width
-    } else {
-        value as usize
-    }
-}
-
-pub(crate) fn pixel_potrace_candidate_boundary_rms_error(
-    path: &TracePath,
-    candidate: &((f64, f64), Vec<SvgPathSegment>),
-) -> f64 {
-    let reference = closed_polyline_points(&path.points);
-    let candidate_points =
-        closed_polyline_points(&flattened_potrace_segments(candidate.0, &candidate.1));
-    if reference.len() < 2 || candidate_points.len() < 2 {
-        return f64::INFINITY;
-    }
-
-    let reference_to_candidate = mean_squared_distance_to_polyline(&reference, &candidate_points);
-    let candidate_to_reference = mean_squared_distance_to_polyline(&candidate_points, &reference);
-    (reference_to_candidate.max(candidate_to_reference)).sqrt()
-}
-
-pub(crate) fn mean_squared_distance_to_polyline(
-    points: &[(f64, f64)],
-    polyline: &[(f64, f64)],
-) -> f64 {
-    if points.is_empty() || polyline.len() < 2 {
-        return f64::INFINITY;
-    }
-
-    points
-        .iter()
-        .map(|point| distance_squared_to_polyline(*point, polyline).0)
-        .sum::<f64>()
-        / points.len() as f64
-}
-
-pub(crate) fn closed_polyline_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
-    let mut closed = points.to_vec();
-    if let (Some(first), Some(last)) = (closed.first().copied(), closed.last().copied()) {
-        if distance_squared_float(first, last) > 1.0e-12 {
-            closed.push(first);
-        }
-    }
-    closed
-}
-
-pub(crate) fn flattened_potrace_segments(
-    start: (f64, f64),
-    segments: &[SvgPathSegment],
-) -> Vec<(f64, f64)> {
-    const CUBIC_FLATTEN_STEPS: usize = 64;
-
-    let mut points = Vec::new();
-    points.push(start);
-
-    for segment in segments {
-        match segment {
-            SvgPathSegment::Line { end, .. } => points.push(*end),
-            SvgPathSegment::Cubic(cubic) => {
-                for step in 1..=CUBIC_FLATTEN_STEPS {
-                    points.push(cubic_point(
-                        *cubic,
-                        step as f64 / CUBIC_FLATTEN_STEPS as f64,
-                    ));
-                }
-            }
-        }
-    }
-
-    dedup_nearby_points(points)
 }

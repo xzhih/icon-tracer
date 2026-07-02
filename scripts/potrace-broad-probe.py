@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POTRACE_PARITY = ROOT / "scripts" / "potrace-parity.py"
 OUT_DIR = ROOT / "target" / "potrace-broad-probe"
-TOTAL_AE_LIMIT = 1222
+TOTAL_AE_LIMIT = 1114
 BROAD_AE_LIMITS = {
     "capsule_0": 0,
     "capsule_1": 0,
@@ -42,8 +42,8 @@ BROAD_AE_LIMITS = {
     "offset_u": 0,
     "random_union_00": 50,
     "random_union_01": 37,
-    "random_union_02": 52,
-    "random_union_03": 48,
+    "random_union_02": 8,
+    "random_union_03": 14,
     "random_union_04": 37,
     "random_union_05": 41,
     "random_union_06": 28,
@@ -51,10 +51,10 @@ BROAD_AE_LIMITS = {
     "random_union_08": 0,
     "random_union_09": 52,
     "random_union_10": 55,
-    "random_union_11": 60,
+    "random_union_11": 58,
     "random_union_12": 18,
     "random_union_13": 38,
-    "random_union_14": 33,
+    "random_union_14": 17,
     "random_union_15": 13,
     "random_union_16": 20,
     "random_union_17": 9,
@@ -66,10 +66,10 @@ BROAD_AE_LIMITS = {
     "ring_sector_3": 44,
     "ring_sector_4": 40,
     "sharp_v": 58,
-    "skew_rect": 45,
+    "skew_rect": 40,
     "thin_e": 0,
     "thin_l": 0,
-    "trapezoid": 53,
+    "trapezoid": 46,
     "wide_e": 0,
     "wide_h": 26,
     "wide_l": 1,

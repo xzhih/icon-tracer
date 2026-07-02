@@ -10,6 +10,8 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
         .expect("fixture should produce a relaxed candidate");
     let quadrilateral = relaxed_quadrilateral_line_candidate(&path)
         .expect("fixture should produce a simplified quadrilateral candidate");
+    let curve = relaxed_quadrilateral_curve_candidate(&path)
+        .expect("fixture should produce a bounded curve quadrilateral candidate");
     let quadratic = quadratic_vertex_pixel_potrace_segments_for_points(&path.points, 0.2)
         .expect("fixture should produce quadratic candidate");
 
@@ -21,7 +23,7 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
     ));
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(quadrilateral.0, &quadrilateral.1),
-        "M58 62l136-16 18 148-170 16Z"
+        "M58 62l136-16 9 74 8.7 71.8.3 2.2-170 16 8-74 7.8-71.8Z"
     );
     assert!(
         pixel_potrace_candidate_mask_error(&path, &quadrilateral, bitmap.width(), bitmap.height())
@@ -32,11 +34,51 @@ fn quadratic_vertex_candidate_rejects_polygon_boundary_regression() {
         .expect("fixture should produce selected candidate");
     assert_eq!(
         compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
-        compact_svg_path_data_from_segments_without_arcs(quadrilateral.0, &quadrilateral.1)
+        compact_svg_path_data_from_segments_without_arcs(curve.0, &curve.1)
     );
     assert!(
-        pixel_potrace_candidate_mask_error(&path, &selected, bitmap.width(), bitmap.height()) <= 48
+        pixel_potrace_candidate_mask_error(&path, &selected, bitmap.width(), bitmap.height())
+            <= pixel_potrace_candidate_mask_error(
+                &path,
+                &quadrilateral,
+                bitmap.width(),
+                bitmap.height()
+            )
+            .saturating_add(4)
     );
+}
+
+#[test]
+fn relaxed_quadrilateral_curve_candidate_rescues_bounded_polygon_masks() {
+    let fixtures = [
+        local_polygon_bitmap(&[(58.0, 62.0), (194.0, 46.0), (212.0, 194.0), (42.0, 210.0)]),
+        local_polygon_bitmap(&[(70.0, 52.0), (184.0, 68.0), (204.0, 202.0), (50.0, 188.0)]),
+    ];
+
+    for bitmap in fixtures {
+        let path = trace_first_path(&bitmap);
+        let canvas_size = Some((bitmap.width(), bitmap.height()));
+        let line = relaxed_quadrilateral_line_candidate(&path)
+            .expect("fixture should produce a line quadrilateral candidate");
+        let curve = relaxed_quadrilateral_curve_candidate(&path)
+            .expect("fixture should produce a curve quadrilateral candidate");
+        assert!(relaxed_quadrilateral_curve_candidate_is_better(
+            &path,
+            canvas_size,
+            &curve,
+            &line,
+        ));
+        let selected = choose_pixel_potrace_point_set(&path, 0.2, canvas_size, false)
+            .expect("fixture should produce selected candidate");
+        assert_eq!(
+            compact_svg_path_data_from_segments_without_arcs(selected.0, &selected.1),
+            compact_svg_path_data_from_segments_without_arcs(curve.0, &curve.1)
+        );
+        assert_eq!(
+            pixel_potrace_path_precision_preference(&path, canvas_size, false, false, 0.2),
+            SvgPathPrecision::PreserveFractional
+        );
+    }
 }
 
 #[test]

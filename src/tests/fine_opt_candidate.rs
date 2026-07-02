@@ -85,7 +85,7 @@ fn fine_opt_candidate_rejects_tiny_input_gain_regression() {
 }
 
 #[test]
-fn fine_opt_candidate_can_accept_bounded_detail_growth() {
+fn fine_detail_candidate_rejects_boundary_regressing_detail_growth() {
     let bitmap = rounded_rect_union_bitmap(&[
         (86.0, 49.0, 168.0, 132.0, 23.0),
         (43.0, 60.0, 156.0, 143.0, 10.0),
@@ -110,7 +110,7 @@ fn fine_opt_candidate_can_accept_bounded_detail_growth() {
         choose_pixel_potrace_point_set(path, PIXEL_POTRACE_FINE_OPT_TOLERANCE, canvas_size, false)
             .expect("fixture should produce a full fine candidate");
 
-    assert!(pixel_potrace_fine_detail_candidate_is_better(
+    assert!(!pixel_potrace_fine_detail_candidate_is_better(
         path,
         canvas_size,
         &fine,
@@ -118,16 +118,16 @@ fn fine_opt_candidate_can_accept_bounded_detail_growth() {
     ));
     assert_eq!(
         compact_svg_path_data_from_segments(selected.0, &selected.1),
-        compact_svg_path_data_from_segments(fine.0, &fine.1)
+        compact_svg_path_data_from_segments(pre_fine.0, &pre_fine.1)
     );
     assert!(
-        pixel_potrace_candidate_mask_error(path, &selected, bitmap.width(), bitmap.height())
+        pixel_potrace_candidate_mask_error(path, &fine, bitmap.width(), bitmap.height())
             <= pixel_potrace_candidate_mask_error(path, &pre_fine, bitmap.width(), bitmap.height())
                 .saturating_add(4)
     );
     assert!(
-        pixel_potrace_candidate_boundary_rms_error(path, &selected)
-            <= pixel_potrace_candidate_boundary_rms_error(path, &pre_fine) + 0.005
+        pixel_potrace_candidate_boundary_rms_error(path, &fine)
+            > pixel_potrace_candidate_boundary_rms_error(path, &pre_fine)
     );
 }
 
