@@ -22,6 +22,9 @@ This is a Homebrew formula for the CLI binary, not a cask. Homebrew resolves the
 Prebuilt archives are attached to each GitHub Release for macOS universal,
 Linux x86_64, Linux ARM64, and Windows x86_64.
 
+Rust callers can use the `icon_tracer` library API, starting with
+`trace_image_to_svg`.
+
 To build from this checkout instead:
 
 ```sh
@@ -184,8 +187,8 @@ command and stays outside normal `cargo test`.
 For real icon folders, run the batch harness:
 
 ```sh
-scripts/icon-batch.py /Users/zero/Downloads/icon --out-dir target/icon-batch
-scripts/icon-batch.py /Users/zero/Downloads/icon --isolate-foreground --out-dir target/icon-batch-isolated
+scripts/icon-batch.py path/to/icons --out-dir target/icon-batch
+scripts/icon-batch.py path/to/icons --isolate-foreground --out-dir target/icon-batch-isolated
 ```
 
 It writes traced SVGs, rendered PNGs, optimization reports, CSV/JSON summaries,

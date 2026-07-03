@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use icon_tracer::{
     AlphaBackground, ContourMode, CurveMode, RasterOptions, SvgRenderOptions, ThresholdMode,
-    TraceOptions,
+    TraceImageOptions, TraceOptions, TracePreset,
 };
 
 pub const USAGE: &str = "usage: icon-tracer [--preset default|logo|scan|icon] [--threshold auto|0-255] [--invert|--no-invert] [--alpha-background black|white] [--contour pixel|subpixel|scalar] [--curve polygon|smooth|spline|fit|potrace] [--smooth|--spline|--fit] [--turd-size N] [--opt-tolerance N] [--optimize-icon] [--isolate-foreground|--no-isolate-foreground] [--optimization-report path.json] <input> <output.svg>";
@@ -89,7 +89,7 @@ where
         return Ok(CliCommand::Help);
     }
 
-    let mut preset = Preset::Icon;
+    let mut preset = TracePreset::Icon;
     let mut threshold = None;
     let mut invert = None;
     let mut alpha_background = None;
@@ -214,15 +214,15 @@ where
         return Err("--isolate-foreground requires --optimize-icon".to_owned());
     }
 
-    let defaults = preset.defaults();
+    let defaults = TraceImageOptions::preset(preset);
     Ok(CliCommand::Trace(CliOptions {
-        threshold: threshold.unwrap_or(defaults.threshold),
-        invert: invert.unwrap_or(defaults.invert),
+        threshold: threshold.unwrap_or(defaults.raster_options.threshold),
+        invert: invert.unwrap_or(defaults.raster_options.invert),
         alpha_background: alpha_background.unwrap_or_default(),
-        curve_mode: curve_mode.unwrap_or(defaults.curve_mode),
-        contour_mode: contour_mode.unwrap_or(defaults.contour_mode),
-        turd_size: turd_size.unwrap_or(defaults.turd_size),
-        opt_tolerance: opt_tolerance.unwrap_or(defaults.opt_tolerance),
+        curve_mode: curve_mode.unwrap_or(defaults.svg_render_options.curve_mode),
+        contour_mode: contour_mode.unwrap_or(defaults.trace_options.contour_mode),
+        turd_size: turd_size.unwrap_or(defaults.trace_options.turd_size),
+        opt_tolerance: opt_tolerance.unwrap_or(defaults.trace_options.opt_tolerance),
         optimize_icon,
         isolate_foreground: isolate_foreground.unwrap_or(false),
         optimization_report,
@@ -231,69 +231,12 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Preset {
-    Default,
-    Logo,
-    Scan,
-    Icon,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PresetDefaults {
-    threshold: ThresholdMode,
-    invert: bool,
-    curve_mode: CurveMode,
-    contour_mode: ContourMode,
-    turd_size: usize,
-    opt_tolerance: f64,
-}
-
-impl Preset {
-    fn defaults(self) -> PresetDefaults {
-        match self {
-            Self::Default => PresetDefaults {
-                threshold: ThresholdMode::Auto,
-                invert: false,
-                curve_mode: CurveMode::Polygon,
-                contour_mode: ContourMode::Pixel,
-                turd_size: 0,
-                opt_tolerance: 0.0,
-            },
-            Self::Logo => PresetDefaults {
-                threshold: ThresholdMode::Auto,
-                invert: false,
-                curve_mode: CurveMode::Potrace,
-                contour_mode: ContourMode::Subpixel,
-                turd_size: 4,
-                opt_tolerance: 0.75,
-            },
-            Self::Scan => PresetDefaults {
-                threshold: ThresholdMode::Auto,
-                invert: false,
-                curve_mode: CurveMode::Polygon,
-                contour_mode: ContourMode::Pixel,
-                turd_size: 2,
-                opt_tolerance: 0.0,
-            },
-            Self::Icon => PresetDefaults {
-                threshold: ThresholdMode::Auto,
-                invert: false,
-                curve_mode: CurveMode::Potrace,
-                contour_mode: ContourMode::Subpixel,
-                turd_size: 2,
-                opt_tolerance: 0.75,
-            },
-        }
-    }
-}
-
-fn parse_preset(value: &str) -> Result<Preset, String> {
+fn parse_preset(value: &str) -> Result<TracePreset, String> {
     match value {
-        "default" => Ok(Preset::Default),
-        "logo" => Ok(Preset::Logo),
-        "scan" => Ok(Preset::Scan),
-        "icon" => Ok(Preset::Icon),
+        "default" => Ok(TracePreset::Default),
+        "logo" => Ok(TracePreset::Logo),
+        "scan" => Ok(TracePreset::Scan),
+        "icon" => Ok(TracePreset::Icon),
         _ => Err(format!("invalid preset: {value}")),
     }
 }

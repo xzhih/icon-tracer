@@ -1,9 +1,11 @@
+mod api;
 mod components;
 mod optimize;
 mod raster;
 mod svg;
 mod trace;
 
+pub use api::{trace_image_to_svg, TraceImageError, TraceImageOptions, TracePreset};
 pub use components::{
     analyze_components, BinaryMask, Bounds, ComponentAnalysis, ComponentFacts, FloatPoint,
     HoleFacts,
