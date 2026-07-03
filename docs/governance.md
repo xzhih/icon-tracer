@@ -9,6 +9,7 @@ reviewable while the tracing and Potrace-parity work continues.
 - `README.md`: user-facing CLI behavior, presets, and quality harness usage.
 - `docs/governance.md`: completion gates, documentation policy, and evidence
   policy.
+- `docs/release.md`: tag-driven GitHub Release and Homebrew tap automation.
 - `docs/multi-agent-orchestration/`: ignored local planning, review, and
   evidence state for agent sessions.
 

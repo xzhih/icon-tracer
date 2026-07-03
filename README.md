@@ -19,6 +19,10 @@ The governance check verifies required docs, reviewable file sizes, and lingerin
 open-work markers. Behavior-specific verification commands are listed below and
 in `docs/governance.md`.
 
+Release automation is documented in `docs/release.md`. A pushed version tag
+builds release archives, publishes a GitHub Release, and updates the Homebrew tap
+repository.
+
 ## Usage
 
 ```sh

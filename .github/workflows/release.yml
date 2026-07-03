@@ -1,0 +1,236 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: icon-tracer
+  TAP_REPOSITORY: xzhih/tap
+  FORMULA_PATH: Formula/icon-tracer.rb
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Governance
+        run: scripts/check-governance.py
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Release build
+        run: cargo build --release
+
+      - name: Whitespace
+        run: git diff --check
+
+  build-macos:
+    name: Build macOS universal
+    runs-on: macos-15
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build macOS targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Package universal binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          name="${BIN_NAME}-${tag}-apple-darwin-universal"
+          mkdir -p "dist/${name}"
+          lipo -create \
+            "target/aarch64-apple-darwin/release/${BIN_NAME}" \
+            "target/x86_64-apple-darwin/release/${BIN_NAME}" \
+            -output "dist/${name}/${BIN_NAME}"
+          chmod +x "dist/${name}/${BIN_NAME}"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          shasum -a 256 "dist/${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-apple-darwin-universal
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Linux target
+        run: cargo build --release
+
+      - name: Package Linux binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          name="${BIN_NAME}-${tag}-x86_64-unknown-linux-gnu"
+          mkdir -p "dist/${name}"
+          cp "target/release/${BIN_NAME}" "dist/${name}/${BIN_NAME}"
+          chmod +x "dist/${name}/${BIN_NAME}"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          sha256sum "dist/${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-x86_64-unknown-linux-gnu
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - build-macos
+      - build-linux
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    needs: publish-release
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPOSITORY }}
+          path: tap
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
+
+      - name: Update formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          mac_asset="${BIN_NAME}-${tag}-apple-darwin-universal.tar.gz"
+          mac_sha="$(cut -d ' ' -f 1 "dist/${mac_asset}.sha256")"
+          mac_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${mac_asset}"
+
+          mkdir -p "tap/$(dirname "${FORMULA_PATH}")"
+          cat > "tap/${FORMULA_PATH}" <<EOF
+          class IconTracer < Formula
+            desc "Small Rust icon-oriented bitmap-to-SVG tracer"
+            homepage "https://github.com/${GITHUB_REPOSITORY}"
+            url "${mac_url}"
+            sha256 "${mac_sha}"
+            license "MIT"
+            version "${version}"
+
+            def install
+              bin.install "icon-tracer"
+            end
+
+            test do
+              (testpath/"input.pbm").write "P1\n1 1\n1\n"
+              system "#{bin}/icon-tracer", "--preset", "default", testpath/"input.pbm", testpath/"output.svg"
+              assert_path_exists testpath/"output.svg"
+            end
+          end
+          EOF
+
+      - name: Commit and push formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${FORMULA_PATH}"
+          if git diff --cached --quiet; then
+            echo "Formula is already up to date."
+            exit 0
+          fi
+          git commit -m "Update icon-tracer ${GITHUB_REF_NAME}"
+          git push
