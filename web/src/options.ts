@@ -20,13 +20,13 @@ export const defaultControls: TraceControls = {
   curveMode: "potrace",
   thresholdMode: "auto",
   threshold: 180,
-  invert: false,
-  alphaBackground: "white",
+  invert: true,
+  alphaBackground: "black",
   turdSize: 2,
   optTolerance: 0.75,
   optimizeIcon: false,
   isolateForeground: false,
-  previewBackground: "gray",
+  previewBackground: "white",
   zoom: 100,
 };
 

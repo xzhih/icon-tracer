@@ -1,11 +1,11 @@
 import { ImagePlus } from "lucide-react";
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent,
-  type WheelEvent,
 } from "react";
 import type { Messages } from "../i18n";
 import type { HistoryItem, TraceControls } from "../types";
@@ -47,6 +47,7 @@ export function PreviewCanvas({
   onUpload,
   onZoomChange,
 }: PreviewCanvasProps) {
+  const stageRef = useRef<HTMLElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panRef = useRef<PanState | null>(null);
   const zoomFocusRef = useRef<ZoomFocus | null>(null);
@@ -64,37 +65,48 @@ export function PreviewCanvas({
     zoomFocusRef.current = null;
   }, [controls.zoom]);
 
-  const handleWheel = (event: WheelEvent<HTMLElement>) => {
-    if (!item?.svg) {
-      return;
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) {
+      return undefined;
     }
 
-    if (!isZoomWheelEvent(event)) {
-      return;
-    }
+    const handleWheel = (event: WheelEvent) => {
+      if (!isZoomWheelEvent(event)) {
+        return;
+      }
 
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
+      event.preventDefault();
 
-    event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    const pointerX = event.clientX - rect.left;
-    const pointerY = event.clientY - rect.top;
-    const contentX = viewport.scrollLeft + pointerX;
-    const contentY = viewport.scrollTop + pointerY;
-    const deltaY = event.deltaMode === 1 ? event.deltaY * wheelLineHeightPx : event.deltaY;
-    const nextZoom = clampZoom(controls.zoom * getWheelZoomFactor(deltaY));
+      if (!item?.svg) {
+        return;
+      }
 
-    if (nextZoom === controls.zoom) {
-      return;
-    }
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        return;
+      }
 
-    const ratio = nextZoom / controls.zoom;
-    zoomFocusRef.current = { contentX, contentY, pointerX, pointerY, ratio };
-    onZoomChange(nextZoom);
-  };
+      const rect = viewport.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
+      const contentX = viewport.scrollLeft + pointerX;
+      const contentY = viewport.scrollTop + pointerY;
+      const deltaY = event.deltaMode === 1 ? event.deltaY * wheelLineHeightPx : event.deltaY;
+      const nextZoom = clampZoom(controls.zoom * getWheelZoomFactor(deltaY));
+
+      if (nextZoom === controls.zoom) {
+        return;
+      }
+
+      const ratio = nextZoom / controls.zoom;
+      zoomFocusRef.current = { contentX, contentY, pointerX, pointerY, ratio };
+      onZoomChange(nextZoom);
+    };
+
+    stage.addEventListener("wheel", handleWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", handleWheel);
+  }, [controls.zoom, item?.svg, onZoomChange]);
 
   const startPan = (event: PointerEvent<HTMLDivElement>) => {
     if (!item?.svg || event.button !== 0) {
@@ -143,7 +155,7 @@ export function PreviewCanvas({
   };
 
   return (
-    <section className={`preview-stage bg-${controls.previewBackground}`} onWheel={handleWheel}>
+    <section ref={stageRef} className={`preview-stage bg-${controls.previewBackground}`}>
       {item?.svg ? (
         <div
           ref={viewportRef}
@@ -161,10 +173,12 @@ export function PreviewCanvas({
           </div>
         </div>
       ) : (
-        <button className="drop-target" type="button" onClick={onUpload}>
-          <ImagePlus size={42} />
-          <span>{t.dropUpload}</span>
-        </button>
+        <div className="empty-preview">
+          <button className="drop-target" type="button" onClick={onUpload}>
+            <ImagePlus size={42} />
+            <span>{t.dropUpload}</span>
+          </button>
+        </div>
       )}
       {item?.error ? <div className="error-banner">{item.error}</div> : null}
     </section>
@@ -182,7 +196,7 @@ function getWheelZoomFactor(deltaY: number): number {
   );
 }
 
-function isZoomWheelEvent(event: WheelEvent<HTMLElement>): boolean {
+function isZoomWheelEvent(event: WheelEvent): boolean {
   // Chromium exposes trackpad pinch as a ctrlKey wheel event; metaKey keeps Cmd-wheel useful on macOS.
   return event.ctrlKey || event.metaKey;
 }

@@ -27,16 +27,24 @@ export function TopBar({
 }: TopBarProps) {
   return (
     <header className="top-bar">
-      <a
-        className="topbar-github"
-        href={repositoryUrl}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={t.openRepository}
-        title={t.openRepository}
-      >
-        <Github size={18} />
-      </a>
+      <div className="topbar-left">
+        <a
+          className="topbar-github"
+          href={repositoryUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t.openRepository}
+          title={t.openRepository}
+        >
+          <Github size={18} />
+        </a>
+        {isTracing ? (
+          <span className="trace-status is-active">
+            <Loader2 size={15} />
+            <span>{t.tracing}</span>
+          </span>
+        ) : null}
+      </div>
       <div className="toolbar">
         <div className="language-switch" role="group" aria-label={t.languageSwitch}>
           <button
@@ -74,12 +82,6 @@ export function TopBar({
         >
           <Download size={18} />
         </button>
-        {isTracing ? (
-          <span className="trace-status is-active">
-            <Loader2 size={15} />
-            <span>{t.tracing}</span>
-          </span>
-        ) : null}
       </div>
     </header>
   );

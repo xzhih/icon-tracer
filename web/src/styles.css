@@ -176,6 +176,17 @@ button {
   overflow: visible;
 }
 
+.empty-preview {
+  position: absolute;
+  inset: var(--topbar-height) var(--inspector-width) 0 var(--rail-width);
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  padding: 48px;
+  pointer-events: none;
+}
+
 .drop-target {
   display: grid;
   width: min(420px, calc(100vw - var(--rail-width) - var(--inspector-width) - 104px));
@@ -188,6 +199,7 @@ button {
   background: rgba(0, 0, 0, 0.18);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .drop-target span {
@@ -347,6 +359,42 @@ button {
   transform: translate(-50%, -50%) scale(1);
 }
 
+.history-confirm {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  gap: 7px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.86);
+  transform: translate(-50%, -50%);
+}
+
+.history-confirm-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.history-confirm-button:hover {
+  transform: scale(1.04);
+}
+
+.history-confirm-button.is-danger {
+  color: #ffffff;
+  background: var(--danger);
+}
+
 .top-bar {
   position: absolute;
   z-index: 2;
@@ -361,6 +409,13 @@ button {
   padding: 0 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--hairline);
+}
+
+.topbar-left {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
 }
 
 .topbar-github {
@@ -527,13 +582,17 @@ button {
 }
 
 .control-row {
-  grid-template-columns: minmax(92px, 1fr) var(--control-value-width);
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--control-value-width));
   gap: 12px;
   padding: 0 12px;
 }
 
 .control-row > span:first-child,
 .slider-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-soft);
   font-size: 13px;
   font-weight: 700;
@@ -542,7 +601,7 @@ button {
 .select-shell {
   position: relative;
   display: grid;
-  width: var(--control-value-width);
+  width: min(100%, var(--control-value-width));
   min-width: 0;
   justify-self: end;
 }
@@ -550,6 +609,7 @@ button {
 .select-button {
   display: flex;
   width: 100%;
+  min-width: 0;
   min-height: 30px;
   align-items: center;
   justify-content: space-between;
@@ -570,10 +630,15 @@ button {
 }
 
 .select-button span {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.select-button svg {
+  flex: 0 0 auto;
 }
 
 .select-shell.is-open .select-button {
@@ -592,7 +657,9 @@ button {
   top: calc(100% + 6px);
   right: 0;
   display: grid;
-  width: max(100%, 168px);
+  width: max-content;
+  min-width: 168px;
+  max-width: min(260px, calc(var(--inspector-width) - 44px));
   overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: 10px;
@@ -602,6 +669,7 @@ button {
 
 .select-option {
   display: flex;
+  min-width: 0;
   min-height: 34px;
   align-items: center;
   justify-content: flex-start;
@@ -611,6 +679,7 @@ button {
   font-size: 13px;
   font-weight: 700;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -621,7 +690,8 @@ button {
 }
 
 .number-input {
-  width: var(--control-value-width);
+  width: min(100%, var(--control-value-width));
+  min-width: 0;
   min-height: 30px;
   justify-self: end;
   border: 0;

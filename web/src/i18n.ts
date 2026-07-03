@@ -7,6 +7,9 @@ export const languageStorageKey = "icon-tracer-web-language-v1";
 export interface Messages {
   alpha: string;
   auto: string;
+  cancel: string;
+  confirmDelete: string;
+  confirmDeleteIcon: (name: string) => string;
   contour: string;
   copySvg: string;
   curve: string;
@@ -47,6 +50,9 @@ export const messages: Record<Language, Messages> = {
   en: {
     alpha: "Transparent fill",
     auto: "Auto",
+    cancel: "Cancel",
+    confirmDelete: "Confirm remove",
+    confirmDeleteIcon: (name) => `Confirm deleting ${name}`,
     contour: "Edge",
     copySvg: "Copy SVG",
     curve: "Path style",
@@ -108,6 +114,9 @@ export const messages: Record<Language, Messages> = {
   zh: {
     alpha: "透明区域底色",
     auto: "自动",
+    cancel: "取消",
+    confirmDelete: "确认移除",
+    confirmDeleteIcon: (name) => `确认删除 ${name}`,
     contour: "边缘",
     copySvg: "复制 SVG",
     curve: "线条",
