@@ -26,6 +26,9 @@ the tap repository.
 After a successful release, macOS users can install with:
 
 ```sh
-brew tap xzhih/tap
+brew tap xzhih/tap https://github.com/xzhih/tap
 brew install icon-tracer
 ```
+
+The explicit URL is required because Homebrew's shorthand `brew tap xzhih/tap`
+looks for a GitHub repository named `xzhih/homebrew-tap`.
