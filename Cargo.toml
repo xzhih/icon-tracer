@@ -9,6 +9,10 @@ license = "MIT"
 default = []
 slow-tests = []
 
+[workspace]
+members = [".", "wasm"]
+resolver = "2"
+
 [dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }
 png = "0.17"

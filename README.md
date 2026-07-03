@@ -25,6 +25,15 @@ Linux x86_64, Linux ARM64, and Windows x86_64.
 Rust callers can use the `icon_tracer` library API, starting with
 `trace_image_to_svg`.
 
+The browser workbench lives in `web/` and is built with Bun, Vite, and the
+local WASM wrapper:
+
+```sh
+cd web
+bun install
+bun run dev
+```
+
 To build from this checkout instead:
 
 ```sh

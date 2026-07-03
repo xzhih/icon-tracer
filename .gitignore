@@ -1,6 +1,7 @@
 # Rust build outputs
 /target/
 /dist/
+/wasm/pkg/
 *.profraw
 *.profdata
 /coverage/
@@ -34,3 +35,8 @@ __pycache__/
 .env.*
 !.env.example
 *.log
+
+# Web app build outputs
+/web/node_modules/
+/web/dist/
+/web/src/wasm-pkg/
