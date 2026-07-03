@@ -66,6 +66,11 @@ Broad Potrace-parity changes:
 Use targeted tests first while developing, then run the relevant full checks
 before claiming completion.
 
+GitHub CI runs the minimum governance checks plus Rust format, clippy, tests,
+release build, and whitespace checks on pushes to `main` and on pull requests.
+Keep local completion evidence aligned with that workflow so CI is a final
+guardrail rather than the first place regressions are discovered.
+
 ## Reviewability Policy
 
 - Source, script, and test files should stay below 1000 lines.

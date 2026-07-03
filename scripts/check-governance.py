@@ -7,10 +7,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCAN_PATHS = ("AGENTS.md", "README.md", "docs", "scripts", "src", "tests")
+DEFAULT_SCAN_PATHS = (
+    ".github",
+    "AGENTS.md",
+    "README.md",
+    "docs",
+    "scripts",
+    "src",
+    "tests",
+)
 LINE_LIMIT = 1000
 REVIEWABLE_SUFFIXES = {".py", ".rs"}
-TEXT_SUFFIXES = {".md", ".py", ".rs", ".toml"}
+TEXT_SUFFIXES = {".md", ".py", ".rs", ".toml", ".yaml", ".yml"}
 SKIP_DIRS = {".git", "target", "__pycache__"}
 
 
