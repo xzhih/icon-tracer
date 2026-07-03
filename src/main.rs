@@ -401,6 +401,10 @@ fn push_candidate_json(
         "{nested}\"opt_tolerance\": {:.6},\n",
         candidate.trace_options.opt_tolerance
     ));
+    json.push_str(&format!(
+        "{nested}\"turd_size\": {},\n",
+        candidate.trace_options.turd_size
+    ));
     json.push_str(&format!("{nested}\"score\": {:.9},\n", candidate.score));
     json.push_str(&format!(
         "{nested}\"path_count\": {},\n",

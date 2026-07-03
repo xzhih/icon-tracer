@@ -467,6 +467,7 @@ fn cli_optimize_icon_writes_svg_and_feedback_report() {
     let report_json = fs::read_to_string(&report).expect("report should be written");
     assert!(report_json.contains(r#""best_candidate""#));
     assert!(report_json.contains(r#""candidates""#));
+    assert!(report_json.contains(r#""turd_size""#));
     assert!(report_json.contains(r#""xor_ratio""#));
 
     fs::remove_dir_all(work_dir).expect("temp dir should be removed");

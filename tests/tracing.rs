@@ -699,6 +699,56 @@ fn optimize_icon_trace_preserves_disconnected_corner_mark_without_edge_residue()
 }
 
 #[test]
+fn optimize_icon_trace_sweeps_turd_size_for_tiny_isolated_residue() {
+    let pixels = (0..128)
+        .flat_map(|y| {
+            (0..128).map(move |x| {
+                let center_logo = (20..108).contains(&x) && (20..108).contains(&y);
+                let corner_residue = (118..120).contains(&x) && (118..120).contains(&y);
+
+                if center_logo || corner_residue {
+                    rgba(255, 255, 255)
+                } else {
+                    rgba(0, 0, 0)
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let image = RgbaImage::from_rows(128, 128, &pixels).expect("image should be valid");
+
+    let result = optimize_icon_trace(
+        &image,
+        IconOptimizeOptions {
+            raster_options: RasterOptions {
+                threshold: ThresholdMode::Fixed(128),
+                invert: true,
+                alpha_background: AlphaBackground::Black,
+            },
+            contour_modes: vec![ContourMode::Subpixel],
+            opt_tolerances: vec![0.75],
+            isolate_foreground: true,
+            ..IconOptimizeOptions::default()
+        },
+    )
+    .expect("optimizer should run");
+
+    assert!(
+        result
+            .candidates
+            .iter()
+            .any(|candidate| candidate.trace_options.turd_size > 2),
+        "optimizer should evaluate noise-filtering turd sizes: {:?}",
+        result.candidates
+    );
+    assert!(
+        result.best_candidate.trace_options.turd_size > 2,
+        "tiny isolated residue should be filtered by the selected candidate: {:?}",
+        result.best_candidate
+    );
+    assert_eq!(result.best_candidate.path_count, 1);
+}
+
+#[test]
 fn optimize_icon_trace_reports_svg_complexity() {
     let pixels = (0..32)
         .flat_map(|y| {

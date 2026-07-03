@@ -85,8 +85,8 @@ The trace pipeline is:
 - `--turd-size N` drops traced components whose area is at most `N` pixels.
 - `--opt-tolerance N` controls geometric simplification for the project-specific contour modes. With `--contour pixel --curve potrace`, the CLI keeps the extracted pixel contour intact and passes `N` to the opticurve merge stage, matching Potrace's option semantics more closely for the black-box parity path.
 - `--optimize-icon` runs an internal feedback loop over icon-oriented contour/tolerance candidates, scores each candidate against the source foreground mask, and writes the best SVG. This currently supports PNG/JPEG inputs because it needs RGBA/luma samples.
-- `--isolate-foreground` is only valid with `--optimize-icon`. It uses deterministic border-color and edge-component heuristics to remove app-icon backgrounds before scoring. It is intentionally opt-in because it does not perform semantic logo recognition.
-- `--optimization-report path.json` writes the internal candidate metrics when `--optimize-icon` is enabled.
+- `--isolate-foreground` is only valid with `--optimize-icon`. It uses deterministic border-color and edge-component heuristics to remove app-icon backgrounds before scoring. It is intentionally opt-in because it does not perform semantic logo recognition. In this mode, the optimizer also sweeps bounded `--turd-size` candidates so tiny isolated residue can be dropped when the mask error remains close to the best fit.
+- `--optimization-report path.json` writes the internal candidate metrics when `--optimize-icon` is enabled, including the contour mode, opt tolerance, and turd size used by each candidate.
 
 ## Vector quality feedback
 
@@ -142,9 +142,11 @@ round-trip regression suite.
 The Rust-side `--optimize-icon` loop uses a faster internal mask-difference
 metric: source foreground mask vs traced foreground mask, with normalized XOR,
 foreground error, false-positive/false-negative rates, precision, recall, and
-IoU. That makes it useful for parameter selection during tracing. The
-`scripts/vector-quality.py` round-trip still remains the final visual guard
-because it compares rendered SVG pixels.
+IoU. That makes it useful for parameter selection during tracing. When
+foreground isolation is enabled, close-fitting candidates may use a larger
+bounded turd size to remove tiny isolated residue. The `scripts/vector-quality.py`
+round-trip still remains the final visual guard because it compares rendered SVG
+pixels.
 
 For black-box Potrace parity work, run:
 

@@ -120,42 +120,50 @@ pub fn optimize_icon_trace(
     } else {
         options.opt_tolerances.clone()
     };
+    let turd_sizes = icon_candidate_turd_sizes(
+        options.trace_options.turd_size,
+        options.isolate_foreground,
+        &target_mask,
+    );
 
     let mut evaluated_candidates = Vec::new();
 
     for contour_mode in contour_modes {
         for opt_tolerance in &opt_tolerances {
-            let trace_options = TraceOptions {
-                contour_mode,
-                opt_tolerance: opt_tolerance.max(0.0),
-                ..options.trace_options
-            };
-            let traced = if contour_mode == ContourMode::Scalar {
-                trace_scalar_field(&scalar_field, scalar_raster_options, trace_options)?
-            } else {
-                trace_bitmap(&target_bitmap, trace_options)
-            };
-            let candidate_mask = traced.to_mask();
-            let metrics = compare_icon_masks(&target_mask, &candidate_mask)?;
-            let path_count = traced.paths.len();
-            let point_count = traced_point_count(&traced);
-            let svg_command_count = traced_svg_command_count(&traced, options.svg_options);
-            let score = icon_candidate_score(
-                metrics,
-                point_count,
-                svg_command_count,
-                options.complexity_weight,
-            );
-            let candidate = IconOptimizationCandidate {
-                trace_options,
-                metrics,
-                score,
-                path_count,
-                point_count,
-                svg_command_count,
-            };
+            for turd_size in &turd_sizes {
+                let trace_options = TraceOptions {
+                    contour_mode,
+                    turd_size: *turd_size,
+                    opt_tolerance: opt_tolerance.max(0.0),
+                    ..options.trace_options
+                };
+                let traced = if contour_mode == ContourMode::Scalar {
+                    trace_scalar_field(&scalar_field, scalar_raster_options, trace_options)?
+                } else {
+                    trace_bitmap(&target_bitmap, trace_options)
+                };
+                let candidate_mask = traced.to_mask();
+                let metrics = compare_icon_masks(&target_mask, &candidate_mask)?;
+                let path_count = traced.paths.len();
+                let point_count = traced_point_count(&traced);
+                let svg_command_count = traced_svg_command_count(&traced, options.svg_options);
+                let score = icon_candidate_score(
+                    metrics,
+                    point_count,
+                    svg_command_count,
+                    options.complexity_weight,
+                );
+                let candidate = IconOptimizationCandidate {
+                    trace_options,
+                    metrics,
+                    score,
+                    path_count,
+                    point_count,
+                    svg_command_count,
+                };
 
-            evaluated_candidates.push((candidate, traced));
+                evaluated_candidates.push((candidate, traced));
+            }
         }
     }
 
@@ -163,7 +171,7 @@ pub fn optimize_icon_trace(
         .iter()
         .map(|(candidate, _)| candidate.clone())
         .collect::<Vec<_>>();
-    let best_index = best_icon_candidate_index(&candidates)
+    let best_index = best_icon_candidate_index(&candidates, options.isolate_foreground)
         .expect("optimizer should evaluate at least one candidate");
     let best_candidate = candidates[best_index].clone();
     let best_traced = evaluated_candidates[best_index].1.clone();
@@ -526,6 +534,37 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
     }
 }
 
+const ICON_AUTO_TURD_SIZE_CANDIDATES: &[usize] = &[4, 8, 16, 32, 50, 64, 100, 128, 192, 256];
+
+fn icon_candidate_turd_sizes(
+    base_turd_size: usize,
+    isolate_foreground: bool,
+    target_mask: &BinaryMask,
+) -> Vec<usize> {
+    let mut turd_sizes = vec![base_turd_size];
+
+    if isolate_foreground {
+        let cap = icon_auto_turd_size_cap(base_turd_size, target_mask);
+        turd_sizes.extend(
+            ICON_AUTO_TURD_SIZE_CANDIDATES
+                .iter()
+                .copied()
+                .filter(|size| *size > base_turd_size && *size <= cap),
+        );
+    }
+
+    turd_sizes.sort_unstable();
+    turd_sizes.dedup();
+    turd_sizes
+}
+
+fn icon_auto_turd_size_cap(base_turd_size: usize, target_mask: &BinaryMask) -> usize {
+    let canvas_cap = ((target_mask.pixels.len() as f64 * 0.0002).round() as usize).max(4);
+    let foreground_cap = ((mask_area(target_mask) as f64 * 0.01).round() as usize).max(4);
+
+    base_turd_size.max(canvas_cap.min(foreground_cap))
+}
+
 fn traced_point_count(traced: &TracedBitmap) -> usize {
     traced.paths.iter().map(|path| path.points.len()).sum()
 }
@@ -550,6 +589,9 @@ fn traced_svg_command_count(traced: &TracedBitmap, options: SvgOptions) -> usize
 }
 
 const ICON_COMPLEXITY_FIT_SCORE_BAND: f64 = 0.002;
+const ICON_ISOLATED_VISUAL_FIT_SCORE_BAND: f64 = 0.012;
+const ICON_ISOLATED_VISUAL_MAX_FOREGROUND_ERROR_RATIO: f64 = 0.007;
+const ICON_ISOLATED_VISUAL_MIN_IOU: f64 = 0.993;
 
 fn icon_candidate_fit_score(metrics: IconDiffMetrics) -> f64 {
     metrics.foreground_error_ratio + metrics.false_negative_ratio * 0.5 + (1.0 - metrics.iou) * 0.25
@@ -583,11 +625,20 @@ fn icon_candidate_score(
         )
 }
 
-pub(crate) fn best_icon_candidate_index(candidates: &[IconOptimizationCandidate]) -> Option<usize> {
+pub(crate) fn best_icon_candidate_index(
+    candidates: &[IconOptimizationCandidate],
+    prefer_isolated_icon_visuals: bool,
+) -> Option<usize> {
     let min_fit_score = candidates
         .iter()
         .map(|candidate| icon_candidate_fit_score(candidate.metrics))
         .min_by(f64::total_cmp)?;
+
+    if prefer_isolated_icon_visuals {
+        if let Some(index) = best_isolated_icon_visual_candidate_index(candidates, min_fit_score) {
+            return Some(index);
+        }
+    }
 
     candidates
         .iter()
@@ -598,6 +649,52 @@ pub(crate) fn best_icon_candidate_index(candidates: &[IconOptimizationCandidate]
         })
         .min_by(|(_, left), (_, right)| compare_eligible_icon_candidates(left, right))
         .map(|(index, _)| index)
+}
+
+fn best_isolated_icon_visual_candidate_index(
+    candidates: &[IconOptimizationCandidate],
+    min_fit_score: f64,
+) -> Option<usize> {
+    candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| isolated_icon_visual_fit_is_acceptable(candidate, min_fit_score))
+        .min_by(|(_, left), (_, right)| compare_isolated_icon_visual_candidates(left, right))
+        .map(|(index, _)| index)
+}
+
+fn isolated_icon_visual_fit_is_acceptable(
+    candidate: &IconOptimizationCandidate,
+    min_fit_score: f64,
+) -> bool {
+    let metrics = candidate.metrics;
+
+    icon_candidate_fit_score(metrics) <= min_fit_score + ICON_ISOLATED_VISUAL_FIT_SCORE_BAND
+        && metrics.foreground_error_ratio <= ICON_ISOLATED_VISUAL_MAX_FOREGROUND_ERROR_RATIO
+        && metrics.iou >= ICON_ISOLATED_VISUAL_MIN_IOU
+}
+
+fn compare_isolated_icon_visual_candidates(
+    left: &IconOptimizationCandidate,
+    right: &IconOptimizationCandidate,
+) -> std::cmp::Ordering {
+    left.path_count
+        .cmp(&right.path_count)
+        .then_with(|| {
+            contour_mode_visual_rank(left.trace_options.contour_mode)
+                .cmp(&contour_mode_visual_rank(right.trace_options.contour_mode))
+        })
+        .then_with(|| left.svg_command_count.cmp(&right.svg_command_count))
+        .then_with(|| left.point_count.cmp(&right.point_count))
+        .then_with(|| left.score.total_cmp(&right.score))
+}
+
+fn contour_mode_visual_rank(mode: ContourMode) -> u8 {
+    match mode {
+        ContourMode::Scalar => 0,
+        ContourMode::Subpixel => 1,
+        ContourMode::Pixel => 2,
+    }
 }
 
 fn compare_eligible_icon_candidates(
