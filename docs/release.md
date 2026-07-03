@@ -14,21 +14,17 @@ The release workflow:
    gates used by CI;
 2. builds a universal macOS archive and a Linux x86_64 archive;
 3. creates a GitHub Release with checksums;
-4. updates `xzhih/tap` with a Homebrew formula pointing at the macOS release
-   archive.
+4. updates the `xzhih/tap` Homebrew tap, backed by
+   `xzhih/homebrew-tap`, with a formula pointing at the macOS release archive.
 
 The repository needs a GitHub Actions secret named `TAP_DEPLOY_KEY`. Store a
-private SSH key that has write access to `git@github.com:xzhih/tap.git`. The
-matching public key should be added to the tap repository as a deploy key with
-write access, or the private key should belong to a machine user that can push to
-the tap repository.
+private SSH key that has write access to
+`git@github.com:xzhih/homebrew-tap.git`. The matching public key should be added
+to the tap repository as a deploy key with write access, or the private key
+should belong to a machine user that can push to the tap repository.
 
 After a successful release, macOS users can install with:
 
 ```sh
-brew tap xzhih/tap https://github.com/xzhih/tap
-brew install icon-tracer
+brew install xzhih/tap/icon-tracer
 ```
-
-The explicit URL is required because Homebrew's shorthand `brew tap xzhih/tap`
-looks for a GitHub repository named `xzhih/homebrew-tap`.

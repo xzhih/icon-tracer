@@ -11,7 +11,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   BIN_NAME: icon-tracer
-  TAP_REPOSITORY: xzhih/tap
+  TAP_REPOSITORY: xzhih/homebrew-tap
   FORMULA_PATH: Formula/icon-tracer.rb
 
 jobs:
