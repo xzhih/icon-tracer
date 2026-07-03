@@ -1,5 +1,10 @@
 # Rust build outputs
 /target/
+*.profraw
+*.profdata
+/coverage/
+/tarpaulin-report.html
+*.crate
 
 # Local Cargo configuration
 /.cargo/
@@ -10,12 +15,21 @@
 
 # OS/editor/cache noise
 .DS_Store
+._*
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
 __pycache__/
 *.py[cod]
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
 # Local environment files
 .env
 .env.*
+!.env.example
 *.log
