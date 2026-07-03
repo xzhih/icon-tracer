@@ -19,6 +19,9 @@ brew install xzhih/tap/icon-tracer
 This is a Homebrew formula for the CLI binary, not a cask. Homebrew resolves the
 `xzhih/tap` tap name to the `xzhih/homebrew-tap` repository.
 
+Prebuilt archives are attached to each GitHub Release for macOS universal,
+Linux x86_64, Linux ARM64, and Windows x86_64.
+
 To build from this checkout instead:
 
 ```sh

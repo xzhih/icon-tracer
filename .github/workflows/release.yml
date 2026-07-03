@@ -98,8 +98,78 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Build Linux x86_64
+    name: Build Linux ${{ matrix.label }}
     runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64
+            target: x86_64-unknown-linux-gnu
+            linker: ""
+          - label: ARM64
+            target: aarch64-unknown-linux-gnu
+            linker: aarch64-linux-gnu-gcc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux ARM linker
+        if: matrix.linker != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build Linux target
+        env:
+          TARGET: ${{ matrix.target }}
+          LINKER: ${{ matrix.linker }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${LINKER}" ]; then
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="${LINKER}"
+          fi
+          cargo build --release --target "${TARGET}"
+
+      - name: Package Linux binary
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          name="${BIN_NAME}-${tag}-${TARGET}"
+          mkdir -p "dist/${name}"
+          cp "target/${TARGET}/release/${BIN_NAME}" "dist/${name}/${BIN_NAME}"
+          chmod +x "dist/${name}/${BIN_NAME}"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          sha256sum "dist/${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
     needs: validate
 
     steps:
@@ -108,31 +178,37 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64
 
-      - name: Build Linux target
-        run: cargo build --release
+      - name: Build Windows target
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Package Linux binary
-        shell: bash
+      - name: Package Windows binary
+        shell: pwsh
         run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          name="${BIN_NAME}-${tag}-x86_64-unknown-linux-gnu"
-          mkdir -p "dist/${name}"
-          cp "target/release/${BIN_NAME}" "dist/${name}/${BIN_NAME}"
-          chmod +x "dist/${name}/${BIN_NAME}"
-          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
-          sha256sum "dist/${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+          $ErrorActionPreference = "Stop"
+          $tag = $env:GITHUB_REF_NAME
+          $binName = $env:BIN_NAME
+          $target = "x86_64-pc-windows-msvc"
+          $name = "$binName-$tag-$target"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "target/$target/release/$binName.exe" "dist/$name/$binName.exe"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip" -Force
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name.zip" | Set-Content -Path "dist/$name.zip.sha256" -Encoding ascii -NoNewline
 
-      - name: Upload Linux artifact
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-assets-x86_64-unknown-linux-gnu
+          name: release-assets-x86_64-pc-windows-msvc
           path: |
-            dist/*.tar.gz
+            dist/*.zip
             dist/*.sha256
           if-no-files-found: error
 
@@ -142,6 +218,7 @@ jobs:
     needs:
       - build-macos
       - build-linux
+      - build-windows
 
     steps:
       - name: Download release assets
@@ -195,18 +272,39 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
           mac_asset="${BIN_NAME}-${tag}-apple-darwin-universal.tar.gz"
+          linux_x86_asset="${BIN_NAME}-${tag}-x86_64-unknown-linux-gnu.tar.gz"
+          linux_arm_asset="${BIN_NAME}-${tag}-aarch64-unknown-linux-gnu.tar.gz"
           mac_sha="$(cut -d ' ' -f 1 "dist/${mac_asset}.sha256")"
+          linux_x86_sha="$(cut -d ' ' -f 1 "dist/${linux_x86_asset}.sha256")"
+          linux_arm_sha="$(cut -d ' ' -f 1 "dist/${linux_arm_asset}.sha256")"
           mac_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${mac_asset}"
+          linux_x86_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${linux_x86_asset}"
+          linux_arm_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${linux_arm_asset}"
 
           mkdir -p "tap/$(dirname "${FORMULA_PATH}")"
           cat > "tap/${FORMULA_PATH}" <<EOF
           class IconTracer < Formula
             desc "Small Rust icon-oriented bitmap-to-SVG tracer"
             homepage "https://github.com/${GITHUB_REPOSITORY}"
-            url "${mac_url}"
-            sha256 "${mac_sha}"
             license "MIT"
             version "${version}"
+
+            on_macos do
+              url "${mac_url}"
+              sha256 "${mac_sha}"
+            end
+
+            on_linux do
+              on_intel do
+                url "${linux_x86_url}"
+                sha256 "${linux_x86_sha}"
+              end
+
+              on_arm do
+                url "${linux_arm_url}"
+                sha256 "${linux_arm_sha}"
+              end
+            end
 
             def install
               bin.install "icon-tracer"
