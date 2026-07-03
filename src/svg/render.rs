@@ -1,7 +1,7 @@
 use super::*;
 use crate::{CurveMode, SvgRenderOptions, TracePath};
 
-#[cfg(test)]
+#[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn path_to_svg_data(
     path: &TracePath,
     options: SvgRenderOptions,

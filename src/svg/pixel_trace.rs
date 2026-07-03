@@ -2,7 +2,7 @@ use super::*;
 
 pub(crate) const RING_SECTOR_LOOSE_VERTEX_ADJUSTMENT: f64 = 0.75;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn choose_pixel_potrace_point_set(
     path: &TracePath,
     opt_tolerance: f64,

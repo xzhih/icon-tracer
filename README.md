@@ -19,6 +19,20 @@ The governance check verifies required docs, reviewable file sizes, and lingerin
 open-work markers. Behavior-specific verification commands are listed below and
 in `docs/governance.md`.
 
+Default Rust tests are kept fast for day-to-day work:
+
+```sh
+cargo test
+```
+
+The heavier Rust-side icon-quality regressions for candidate selection,
+templates, and optimizer tradeoffs are feature-gated. Run them when changing
+those areas:
+
+```sh
+cargo test --features slow-tests --lib
+```
+
 Release automation is documented in `docs/release.md`. A pushed version tag
 builds release archives, publishes a GitHub Release, and updates the Homebrew tap
 repository.

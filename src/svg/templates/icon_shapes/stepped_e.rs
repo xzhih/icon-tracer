@@ -1,7 +1,7 @@
 use super::stepped_e_paths::*;
 use super::*;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "slow-tests"))]
 pub(crate) fn fit_closed_stepped_e_potrace_segments(
     points: &[(f64, f64)],
 ) -> Option<Vec<SvgPathSegment>> {
@@ -49,5 +49,5 @@ pub(crate) fn closed_stepped_e_potrace_candidates(
     ])
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "slow-tests"))]
 const MAX_TEMPLATE_BOUNDARY_ERROR: f64 = 3.0;

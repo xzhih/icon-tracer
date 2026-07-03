@@ -34,8 +34,9 @@ cargo test
 cargo build --release
 ```
 
-For vector quality or Potrace-parity behavior changes, also run the relevant
-harnesses documented in `README.md` and `docs/governance.md`.
+For icon-quality, template-selection, optimizer-candidate, vector-quality, or
+Potrace-parity behavior changes, also run the relevant slow suite and harnesses
+documented in `README.md` and `docs/governance.md`.
 
 ## Reviewability Rules
 

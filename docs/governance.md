@@ -40,6 +40,12 @@ cargo test
 cargo build --release
 ```
 
+Icon-quality candidate, template-selection, or optimizer scoring changes:
+
+```sh
+cargo test --features slow-tests --lib
+```
+
 Python script changes:
 
 ```sh
@@ -67,10 +73,12 @@ Broad Potrace-parity changes:
 Use targeted tests first while developing, then run the relevant full checks
 before claiming completion.
 
-GitHub CI runs the minimum governance checks plus Rust format, clippy, tests,
-release build, and whitespace checks on pushes to `main` and on pull requests.
-Keep local completion evidence aligned with that workflow so CI is a final
-guardrail rather than the first place regressions are discovered.
+GitHub CI runs the minimum governance checks plus Rust format, clippy, default
+tests, release build, and whitespace checks on pushes to `main` and on pull
+requests. Slow Rust icon-quality regressions are feature-gated behind
+`slow-tests`; run them explicitly for candidate, template, optimizer, and parity
+work. Keep local completion evidence aligned with the relevant workflow so CI is
+a final guardrail rather than the first place regressions are discovered.
 
 ## Reviewability Policy
 

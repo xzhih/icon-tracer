@@ -5,6 +5,10 @@ edition = "2021"
 description = "A small Rust icon-oriented bitmap-to-SVG tracer."
 license = "MIT"
 
+[features]
+default = []
+slow-tests = []
+
 [dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }
 png = "0.17"
